@@ -153,8 +153,8 @@ DESIRED_STATS_NEEDED = 2
 # STONE BUDGET
 # ─────────────────────────────────────────────
 
-# Stop refining this gear after using this many stones
-MAX_STONES_PER_GEAR_EXC_PHASE2 = 3000
+# Stop refining this gear after using this many stones - includes phase 2
+MAX_STONES_PER_GEAR = 3500
 ORANGE_BUFFER = 500
 ALL_SKILLS_LIMIT = 1000 # stones used in search of all skills before reset
 
@@ -631,19 +631,19 @@ def refine_loop():
     looking_for_max_win = False
 
     print("=== Gear Refine Bot Starting ===")
-    print(f"Max stones per gear : {MAX_STONES_PER_GEAR_EXC_PHASE2}")
+    print(f"Max stones per gear : {MAX_STONES_PER_GEAR}")
     print(f"Refine stone cost   : {get_refine_cost(len(locked_rows))}")
     print(f"Desired stats       : {DESIRED_STATS}")
     print("Press F9 at any time to stop.\n")
 
-    while stones_used < MAX_STONES_PER_GEAR_EXC_PHASE2 - ORANGE_BUFFER:
+    while stones_used < MAX_STONES_PER_GEAR - ORANGE_BUFFER:
         emergency_stop_check()
 
         if stones_used > ALL_SKILLS_LIMIT and not locked_all_skills:
             print(f"All skills not found after {ALL_SKILLS_LIMIT}, moving to phase 2")
             break
 
-        print(f"[Stone {stones_used + get_refine_cost(len(locked_rows))}/{MAX_STONES_PER_GEAR_EXC_PHASE2}] Clicking Refine...")
+        print(f"[Stone {stones_used + get_refine_cost(len(locked_rows))}/{MAX_STONES_PER_GEAR}] Clicking Refine...")
         click(REFINE_BUTTON,delay=REFINE_DELAY)
         emergency_stop_check()
 

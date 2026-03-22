@@ -17,6 +17,7 @@ SETUP INSTRUCTIONS:
 Press F9 at any time to emergency stop.
 """
 import os
+import re
 
 import pyautogui
 import pytesseract
@@ -85,6 +86,10 @@ REFINED_STAT_ROW_REGIONS = [
     (-1532, 725, -1420, 745),  # row 3
     (-1532, 755, -1420, 775),  # row 4
 ]
+
+REFINE_STONES_USED_REGION =  (-1480, 1005, -1430, 1030)
+REFINE_STONES_LEFT_REGION = (-1560, 850, -1512, 870)
+
 # TRIAL AND ERROR
 # Lock button X position (they're all at the same X, only Y changes per row)
 # Set this to the X coordinate of any lock button
@@ -154,13 +159,56 @@ DESIRED_STATS_NEEDED = 2
 # ─────────────────────────────────────────────
 
 # Stop refining this gear after using this many stones - includes phase 2
-MAX_STONES_PER_GEAR = 3500
+MAX_STONES_PER_GEAR = 3000
 ORANGE_BUFFER = 500
 ALL_SKILLS_LIMIT = 1000 # stones used in search of all skills before reset
 
 REFINE_DELAY = 1.0 # delay between refine click - match to game so refine stones usage is accurate
 # Delay (seconds) between actions — increase if BlueStacks is slow 0.2 ia default
 CLICK_DELAY       = 0.2
+
+# ─────────────────────────────────────────────
+# INVENTORY NAVIGATION
+# ─────────────────────────────────────────────
+
+# Drag scroll in inventory — drag from bottom to top to scroll down
+INVENTORY_SCROLL_START = (-1731, 768)  # calibrate
+INVENTORY_SCROLL_END   =(-1730, 465)  # calibrate
+
+# First gear slot position in inventory
+GEAR_SLOT_START = (-1871, 667) # calibrate
+
+# Grid layout of gear slots
+GEAR_SLOT_COLS = 7
+GEAR_SLOT_WIDTH = 50   # pixels between columns — calibrate
+GEAR_SLOT_HEIGHT = 50  # pixels between rows — calibrate
+
+
+
+
+# in gear detail view ---------
+RECYCLE_BUTTON = (-1600, 620)  # calibrate
+GEAR_REFINE_BUTTON = (-1600, 640) # calibrate
+LOCK_UNLOCK_BUTTON = (-1600,680) # calibrate
+# -----------------------------
+
+# Back button to exit refine
+BACK_BUTTON = (-1891, 844) # calibrate
+# pack button to open inventory
+PACK_BUTTON =  (-1850, 844)
+
+
+# Region that shows lock status text — read to check if gear is locked before recycling
+GEAR_LOCK_STATUS_REGION = (-1470, 910, -1405, 940)  # T&R
+
+# Text that appears when gear IS locked — if this appears do not recycle
+GEAR_LOCKED_TEXT = "unlock"
+
+# How many items to process before scrolling again
+# ITEMS_PER_SCROLL = 7
+
+# Number of gear items to process in one session
+MAX_GEAR_ITEMS = 20
 
 # ─────────────────────────────────────────────
 # SETUP
@@ -251,7 +299,7 @@ def clean_ocr_text(text):
     text = text.strip()
     return text
 
-def ocr_region(region, debug=True):
+def ocr_region(region, debug=False):
 
     global capture_count
 
@@ -269,11 +317,12 @@ def ocr_region(region, debug=True):
     # Sharpen
     img = img.filter(ImageFilter.SHARPEN)
     img = img.filter(ImageFilter.SHARPEN)  # twice helps
-    
-    os.makedirs("debug", exist_ok=True)
-    img.save(f"debug/capture_{capture_count:04d}.png")
-    print(f"  [DEBUG] Saved capture_{capture_count:04d}.png")
-    capture_count += 1
+
+    if debug == True:
+        os.makedirs("debug", exist_ok=True)
+        img.save(f"debug/capture_{capture_count:04d}.png")
+        print(f"  [DEBUG] Saved capture_{capture_count:04d}.png")
+        capture_count += 1
     
     # PSm 7 = single line, better for short stat text
     text = pytesseract.image_to_string(img, config="--psm 6 --oem 3")
@@ -285,13 +334,22 @@ def ocr_region(region, debug=True):
 
 # new to be able to add to locked rows
 def find_and_click_lock(target_stat):
+
+    global capture_count
+
     print(f"  Scanning rows to find '{target_stat}' and click its lock...")
+
     for i, region in enumerate(CURRENT_STAT_ROW_REGIONS):
         row_text = ocr_region(region)
         print(f"  Row {i+1}: '{row_text.strip()}'")
         if target_stat in row_text:
             lock_pos = lock(i)
             print(f"  Found '{target_stat}' in row {i+1} — clicked lock at {lock_pos}")
+            os.makedirs("debug", exist_ok=True)
+            img = capture_region(region)
+            img.save(f"debug/capture_{capture_count:04d}.png")
+            print(f"  [DEBUG] Saved capture_{capture_count:04d}.png")
+            capture_count += 1
             return i  # ← return index instead of True
     print(f"  ✗ Could not find '{target_stat}' in any row")
     return None  # ← return None instead of False
@@ -382,6 +440,8 @@ def lock_orange_rows(regions):
 def refine_for_orange(phase1_locked_rows,stones_used_phase1):
     print("\n=== PHASE 2: Refining for 3 orange stats ===")
     stones_used_phase2 = 0
+    click(SAVE_BUTTON) # if have 3 orange already there will still be refined stats that will require a popup to remove - this is to prevent popup
+    time.sleep(0.5)
     print(phase1_locked_rows)
     unlock_all_rows(phase1_locked_rows)
     locked_rows = list(lock_orange_rows(CURRENT_STAT_ROW_REGIONS))
@@ -405,7 +465,7 @@ def refine_for_orange(phase1_locked_rows,stones_used_phase1):
             if new_orange:
                 print(f"  New orange stats in rows: {[i+1 for i in new_orange]}")
                 click(SAVE_BUTTON)
-                time.sleep(0.3)
+                time.sleep(0.5)
                 for i in new_orange:
                     click_lock_for_row(i)
                     locked_rows.append(i)
@@ -433,6 +493,74 @@ def refine_for_orange(phase1_locked_rows,stones_used_phase1):
         print(f"\n✅ Phase 2 complete — 3 orange stats locked! TOTAL REFINE STONES ON THIS GEAR = {stones_used_phase1+stones_used_phase2}")
     else:
         print(f"\n⚠ Ran out of stones in Phase 2 with {len(locked_rows)} orange stats locked.")
+
+
+# ------------------------------------------------------ INVENTORY NAVIGATION ZONE ---------------------------------------------------------------
+
+
+def scroll_inventory():
+    """Drag scroll the inventory to reveal more items."""
+    print("  Scrolling inventory...")
+    pyautogui.mouseDown(INVENTORY_SCROLL_START[0], INVENTORY_SCROLL_START[1])
+    time.sleep(0.1)
+    pyautogui.moveTo(INVENTORY_SCROLL_END[0], INVENTORY_SCROLL_END[1], duration=0.5)
+    time.sleep(0.1)
+    pyautogui.mouseUp()
+    time.sleep(0.3)
+
+def get_gear_slot_pos(slot_index):
+    """
+    Calculate screen position of a gear slot by index.
+    Slots are numbered left to right, top to bottom.
+    slot_index 0 = first item, 1 = second item, etc.
+    """
+    col = slot_index % GEAR_SLOT_COLS
+    row = slot_index // GEAR_SLOT_COLS
+    x = GEAR_SLOT_START[0] + col * GEAR_SLOT_WIDTH
+    y = GEAR_SLOT_START[1] + row * GEAR_SLOT_HEIGHT
+    return (x, y)
+
+
+def select_gear(slot_index):
+    """Click on a gear item in the inventory."""
+    pos = get_gear_slot_pos(slot_index)
+    print(f"  Selecting gear at slot {slot_index} → {pos}")
+    click(pos)
+    time.sleep(0.3)
+
+
+def is_gear_locked():
+    """Read the lock status region to check if gear is locked before recycling."""
+    text = ocr_region(GEAR_LOCK_STATUS_REGION)
+    locked = GEAR_LOCKED_TEXT in text
+    print(f"  Gear lock status: '{text.strip()}' — {'LOCKED' if locked else 'not locked'}")
+    return locked
+
+
+def recycle_gear():
+    """
+    Recycle the current gear item.
+    Checks it is not locked before recycling.
+    Returns True if recycled, False if locked (skipped).
+    """
+    print("  Attempting to recycle gear...")
+    if is_gear_locked():
+        click(LOCK_UNLOCK_BUTTON)
+
+    click(RECYCLE_BUTTON)
+    time.sleep(0.3)
+    print("  ✓ Gear recycled")
+    return True
+
+
+def go_back_to_inventory():
+    """Click back button to return to inventory view."""
+    print("  Going back to inventory...")
+    click(BACK_BUTTON)
+    click(PACK_BUTTON)
+    time.sleep(0.5)
+
+
 
 def popup_visible():
     """Check if popup is present by reading a specific pixel colour."""
@@ -480,66 +608,55 @@ def emergency_stop_check():
 
 def calibration_mode():
     print("=== CALIBRATION MODE ===")
-    print("Move your mouse to the positions below and wait 3 seconds each.")
-    print("The coordinates will be printed so you can paste them above.\n")
+    print("Move your mouse to the positions below and wait 3 seconds each.\n")
 
     positions = [
-        "REFINE button",
-        "SAVE button",
-        "CONFIRM / Accept button (popup)",
-        "CANCEL / Revert button (popup)",
-        "TOP-LEFT of popup text area",
-        "BOTTOM-RIGHT of popup text area",
-        "TOP-LEFT of stat ROW 1 text",
-        "BOTTOM-RIGHT of stat ROW 1 text",
-        "TOP-LEFT of stat ROW 2 text",
-        "BOTTOM-RIGHT of stat ROW 2 text",
-        "TOP-LEFT of stat ROW 3 text",
-        "BOTTOM-RIGHT of stat ROW 3 text",
-        "TOP-LEFT of stat ROW 4 text",
-        "BOTTOM-RIGHT of stat ROW 4 text",
-        "LOCK button (any one of them — X coordinate is all we need)",
+        # Inventory navigation
+        "INVENTORY SCROLL start (bottom of drag)",
+        "INVENTORY SCROLL end (top of drag)",
+        "GEAR SLOT 1 (first item in inventory)",
+        # "GEAR REFINE button (in gear detail view)",
+        # "BACK button (return to inventory)",
+        # "RECYCLE button (in gear detail view)",
+        "TOP-LEFT of gear lock status text area",
+        "BOTTOM-RIGHT of gear lock status text area",
     ]
 
     results = {}
     for label in positions:
         print(f"Hover over: {label}")
-        time.sleep(3)
+        time.sleep(4)
         pos = pyautogui.position()
         results[label] = pos
         print(f"  → {pos}\n")
 
-    # Pretty print ready to paste
     r = results
-    print("\n=== PASTE THIS INTO YOUR SCRIPT ===\n")
-    print(f"REFINE_BUTTON  = {r['REFINE button']}")
-    print(f"CONFIRM_BUTTON = {r['CONFIRM / Accept button (popup)']}")
-    print(f"CANCEL_BUTTON  = {r['CANCEL / Revert button (popup)']}")
-    print(f"POPUP_TEXT_REGION = ({r['TOP-LEFT of popup text area'][0]}, {r['TOP-LEFT of popup text area'][1]}, {r['BOTTOM-RIGHT of popup text area'][0]}, {r['BOTTOM-RIGHT of popup text area'][1]})")
-    print(f"STAT_ROW_REGIONS = [")
-    for i in range(1, 5):
-        tl = r[f'TOP-LEFT of stat ROW {i} text']
-        br = r[f'BOTTOM-RIGHT of stat ROW {i} text']
-        print(f"    ({tl[0]}, {tl[1]}, {br[0]}, {br[1]}),  # row {i}")
-    print(f"]")
-    print(f"LOCK_BUTTON_X = {r['LOCK button (any one of them — X coordinate is all we need)'][0]}")
+
+    # Inventory navigation
+    print(f"INVENTORY_SCROLL_START = {r['INVENTORY SCROLL start (bottom of drag)']}")
+    print(f"INVENTORY_SCROLL_END   = {r['INVENTORY SCROLL end (top of drag)']}")
+    print(f"GEAR_SLOT_START        = {r['GEAR SLOT 1 (first item in inventory)']}")
+    # print(f"GEAR_REFINE_BUTTON     = {r['GEAR REFINE button (in gear detail view)']}")
+    # print(f"BACK_BUTTON            = {r['BACK button (return to inventory)']}")
+    # print(f"RECYCLE_BUTTON         = {r['RECYCLE button (in gear detail view)']}")
+
+    tl = r['TOP-LEFT of gear lock status text area']
+    br = r['BOTTOM-RIGHT of gear lock status text area']
+    print(f"GEAR_LOCK_STATUS_REGION = ({tl[0]}, {tl[1]}, {br[0]}, {br[1]})")
 
 def visualise_coordinates():
     print("=== VISUALISE COORDINATES ===")
-
     from PIL import ImageDraw
 
-    # Grab just the secondary monitor
     SECONDARY_LEFT   = -1920
-    SECONDARY_TOP    = 275   # increase is up more
+    SECONDARY_TOP    = 275
     SECONDARY_RIGHT  = 0
-    SECONDARY_BOTTOM = 1225    # increase is down more
+    SECONDARY_BOTTOM = 1225
 
     screenshot = ImageGrab.grab(
         bbox=(SECONDARY_LEFT, SECONDARY_TOP, SECONDARY_RIGHT, SECONDARY_BOTTOM),
         all_screens=True
     )
-
     draw = ImageDraw.Draw(screenshot)
 
     def to_img(x, y):
@@ -560,37 +677,42 @@ def visualise_coordinates():
         draw.rectangle((il, it, ir, ib), outline=colour, width=3)
         draw.text((il, it-16), label, fill=colour)
 
-    
     def draw_game_border():
         il, it = to_img(TOP_LEFT_BORDER[0], TOP_LEFT_BORDER[1])
         ir, ib = to_img(BOTTOM_RIGHT_BORDER[0], BOTTOM_RIGHT_BORDER[1])
         draw.rectangle((il, it, ir, ib), outline=(255, 165, 0), width=3)
         draw.text((il, it - 14), "GAME BORDER", fill=(255, 165, 0))
 
-    draw_marker(REFINE_BUTTON_VISUAL_ONLY,   "REFINE",    (255, 80,  80))
-    draw_marker(SAVE_BUTTON_VISUAL_ONLY, "SAVE", (255,0,0))
-    draw_marker(CANCEL_BUTTON_VISUAL_ONLY,  "CANCEL",   (80,  255, 80))
-    draw_marker(CONFIRM_BUTTON_VISUAL_ONLY,   "CONFIRM",    (80,  180, 255))
-    draw_marker(POPUP_PIXEL_POS_VISUAL_ONLY, "PIX CHECK", (255, 255, 0))
-    draw_region(POPUP_TEXT_REGION,"OCR REGION",(255, 140, 0))
+    # ── Refine view ──
+    draw_marker(REFINE_BUTTON_VISUAL_ONLY,   "REFINE",     (255, 80,  80))
+    draw_marker(SAVE_BUTTON_VISUAL_ONLY,     "SAVE",       (255, 0,   0))
+    draw_marker(CANCEL_BUTTON_VISUAL_ONLY,   "CANCEL",     (80,  255, 80))
+    draw_marker(CONFIRM_BUTTON_VISUAL_ONLY,  "CONFIRM",    (80,  180, 255))
+    draw_marker(POPUP_PIXEL_POS_VISUAL_ONLY, "PIX CHECK",  (255, 255, 0))
+    draw_region(POPUP_TEXT_REGION,           "OCR REGION", (255, 140, 0))
 
+    # ── Lock buttons ──
     for i, pos in enumerate(LOCK_BUTTON_POSITIONS_VISUAL_ONLY):
         draw_marker(pos, f"LOCK {i+1}", (255, 165, 0))
 
-    # Stat rows
+    # ── Stat rows ──
     row_colours = [
         (200, 100, 255),
         (100, 255, 200),
         (255, 100, 150),
         (150, 200, 255),
     ]
-
     for i, row in enumerate(CURRENT_STAT_ROW_REGIONS):
-        draw_region(row, f"ROW {i+1}", row_colours[i])
-    
-    for i, row in enumerate(REFINED_STAT_ROW_REGIONS):
-        draw_region(row, f"ROW {i+1}", row_colours[i])
+        draw_region(row, f"CUR ROW {i+1}", row_colours[i])
 
+    for i, row in enumerate(REFINED_STAT_ROW_REGIONS):
+        draw_region(row, f"REF ROW {i+1}", row_colours[i])
+
+
+    draw_region(REFINE_STONES_LEFT_REGION, "REFINE STONES",  (100, 200, 100))
+    draw_region(REFINE_STONES_USED_REGION, "REFINE STONES",  (100, 200, 100))
+    # ── Inventory navigation ──
+    # draw_region(GEAR_LOCK_STATUS_REGION, "LOCK STATUS",  (100, 200, 100))
 
     draw_game_border()
 
@@ -601,9 +723,95 @@ def visualise_coordinates():
 # ─────────────────────────────────────────────
 # MAIN LOOP
 # ─────────────────────────────────────────────
-#  TODO successful refining moves the click point for selecting the next gear, make sure after 6 moves it goes down instead then goes left 6 time etc in a snake
-#  TODO deal with errors that will arise with incorrect lvl gear
-#  TODO add luck maybe read gear type or dont
+# TODO successful refining moves the click point for selecting the next gear, make sure after 6 moves it goes down instead then goes left 6 time etc in a snake
+# TODO deal with errors that will arise with incorrect lvl gear
+# TODO add luck maybe read gear type or dont
+# TODO checks if enough stones before refining if not enough stop
+# TODO everytime refine is started ss the item for debug
+
+def run_automation():
+    """
+    Master loop — iterates through gear items, refines each one,
+    recycles if needed, and moves to the next.
+    """
+    print("=== AUTOMATION STARTING ===")
+    print(f"Processing up to {MAX_GEAR_ITEMS} gear items")
+    
+    scroll_inventory()
+
+
+    current_slot = 0
+    items_processed = 0
+
+    while items_processed < MAX_GEAR_ITEMS or current_slot<=20: # after 20 slots is a new page of inventory, which would need to scroll further but 20 items checked is already good enough
+        emergency_stop_check()
+
+        print(f"\n{'='*60}")
+        print(f"GEAR ITEM {items_processed + 1}/{MAX_GEAR_ITEMS} — slot {current_slot}")
+        print(f"{'='*60}")
+
+        # Select the gear item
+        select_gear(current_slot)
+        time.sleep(0.3)
+        # Click the refine button to enter refine view
+        # TODO MISSES FOR BOOTS - rwead gear name then use different click position, if no gear found click in a specific area to remove popup and move to next item
+        print("  Opening refine view...")
+        click(GEAR_REFINE_BUTTON)
+        time.sleep(2) # refine stones need to load
+
+        refine_stones_left = int(re.sub(r'[^0-9]', '',ocr_region(REFINE_STONES_LEFT_REGION,debug=True)))
+
+        refine_stone_region_result = ocr_region(REFINE_STONES_USED_REGION,debug=True)
+        refine_stones_used_before_refine = int(re.sub(r'[^0-9]', '', refine_stone_region_result))
+
+        if refine_stones_left > MAX_STONES_PER_GEAR: # refine_stones_used_before_refine == 0 and
+            # Run the refine loop — returns whether phase 2 was needed
+            #  TODO give refine loop refine stones used before result and start the refine stones from there and check current stats before starting
+            refine_loop(refine_stones_used_before_refine)
+            items_processed += 1
+            print(f"\n  ✓ Gear {items_processed} refined successfully — keeping")
+        else:
+            print(f"\n  Not enough refine stones")
+            break
+        go_back_to_inventory()
+        time.sleep(0.3)
+        scroll_inventory()
+        current_slot += 1
+        # INVENTORY ORDER BASED OFF ITEM CP SO ITEMS MOVE AFTER REFINE
+        # if not successful_refine:
+        #     # Phase 2 was run — gear needs recycling
+        #     print(f"\n  Gear {items_processed + 1} needs recycling (phase 2 ran)")
+        #     go_back_to_inventory()
+        #     time.sleep(0.3)
+        #     scroll_inventory()
+        #     select_gear(current_slot)  # reselect same slot to get recycle option
+        #     recycled = recycle_gear()
+
+        #     if recycled:
+        #         print(f"  Gear recycled — next gear will appear in same slot")
+        #         # Stay on same slot index — new gear will be in same position
+        #         # No need to increment current_slot
+        #     else:
+        #         print(f"  ⚠ Could not recycle — moving to next slot anyway")
+        #         current_slot += 1
+        # else:
+        #     # Phase 1 success — keep gear, move to next slot
+        #     print(f"\n  ✓ Gear {items_processed + 1} refined successfully — keeping")
+        #     go_back_to_inventory()
+        #     current_slot += 1
+
+
+
+        # TODO
+        # Scroll inventory every N items to reveal new gear
+        # if current_slot > 0 and current_slot % ITEMS_PER_SCROLL == 0:
+        #     print("  Scrolling inventory to reveal more items...")
+        #     scroll_inventory()
+
+        time.sleep(0.3)
+
+    print(f"\n✅ Automation complete — processed {items_processed} gear items")
+
 
 def evaluate_stat(text, stat_list, locked_all_skills=False):
     """
@@ -620,8 +828,10 @@ def evaluate_stat(text, stat_list, locked_all_skills=False):
     return matched
 
 
-def refine_loop():
-    stones_used = 0
+def refine_loop(stones_used = 0):
+    """
+    True if refining was successful, False if item needs recycling
+    """
     locked_all_skills = False
     locked_desired_count = 0
     locked_rows = []
@@ -636,6 +846,47 @@ def refine_loop():
     print(f"Desired stats       : {DESIRED_STATS}")
     print("Press F9 at any time to stop.\n")
 
+
+
+    # ── Pre-check: scan current stat rows before any refining ──
+    print("  Pre-checking current stats before refining...")
+    for i, region in enumerate(CURRENT_STAT_ROW_REGIONS):
+        row_text = ocr_region(region)
+        print(f"  Current row {i+1}: '{row_text.strip()}'")
+
+        if not locked_all_skills:
+            if evaluate_stat(row_text, DESIRED_STATS):
+                found = find_and_click_lock("all skills")
+                if found is not None:
+                    locked_rows.append(found)
+                    locked_all_skills = True
+                    print("  → Pre-check: all skills found and locked!")
+
+    if locked_all_skills:
+        # Check remaining rows for desired after-lock stats
+        print("  Pre-check: scanning for desired after-lock stats...")
+        for i, region in enumerate(CURRENT_STAT_ROW_REGIONS):
+            if i in locked_rows:
+                continue
+            row_text = ocr_region(region)
+            matched_after = evaluate_stat(row_text, DESIRED_STATS_AFTER_LOCK)
+            if matched_after:
+                found = find_and_click_lock(matched_after[0])
+                if found is not None:
+                    locked_rows.append(found)
+                    locked_desired_count += 1
+                    print(f"  → Pre-check: row {i+1} '{matched_after}' locked!")
+
+        if locked_desired_count >= DESIRED_STATS_NEEDED:
+            print(f"  → Pre-check: already has all desired stats — phase 1 complete!")
+            return True
+        
+        if locked_desired_count > 0:
+            print(f"  → Pre-check: already has all skills and one skill, backup gear - skipping")
+            return True
+
+
+
     while stones_used < MAX_STONES_PER_GEAR - ORANGE_BUFFER:
         emergency_stop_check()
 
@@ -644,6 +895,11 @@ def refine_loop():
             break
 
         print(f"[Stone {stones_used + get_refine_cost(len(locked_rows))}/{MAX_STONES_PER_GEAR}] Clicking Refine...")
+        if stones_used > 0 and stones_used % 100 == 0:
+            print(f""" ╔══════════════════════════════════╗
+                       ║  STONES USED: {stones_used:<5}  /  {MAX_STONES_PER_GEAR:<5}   ║
+                       ╚══════════════════════════════════╝""")
+            
         click(REFINE_BUTTON,delay=REFINE_DELAY)
         emergency_stop_check()
 
@@ -685,6 +941,7 @@ def refine_loop():
                 print("  All skills not found in refined rows, rerolling...")
                 click(REFINE_BUTTON) # make popup reappear
                 click(CONFIRM_BUTTON) # reroll from popup window
+                stones_used += get_refine_cost(len(locked_rows))
                 continue
 
         if locked_all_skills:
@@ -730,8 +987,10 @@ def refine_loop():
     if not phase1_success and not lock_not_found:
         print("\n⚠ Phase 1 incomplete — going to Phase 2 for 3 orange stats")
         refine_for_orange(locked_rows,stones_used)
+        return False
 
     print(f"\n✅ Used {stones_used} stones. Time to recycle and start over!")
+    return True
 
 
 
@@ -773,4 +1032,4 @@ if __name__ == "__main__":
     elif VISUALISATION_MODE:
         visualise_coordinates()
     else:
-        refine_loop()
+        run_automation()

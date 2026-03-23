@@ -33,7 +33,7 @@ from PIL import Image, ImageGrab
 # Path to Tesseract executable
 TESSERACT_PATH = r"C:\Users\Daniel's laptop\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"
 
-CALIBRATION_MODE = False
+CALIBRATION_MODE = True
 VISUALISATION_MODE = False
 
 TEST_OCR_MODE = False
@@ -51,9 +51,7 @@ capture_count = 0
 # These are different because ImageGrab uses the raw framebuffer coordinate
 # system which doesn't match the logical/scaled coords that mouse clicks use.
 
-# From Calibration mode
-# CLICK COORDINATES — used by pyautogui.click(), these are logical pixels
-# relative to your primary monitor. Negative X = left monitor.
+# From Calibration and visualisation mode
 REFINE_BUTTON  = (-1753, 693)
 SAVE_BUTTON  = (-1627, 694)
 CANCEL_BUTTON = (-1765, 610) # reject the popup to refine the stat
@@ -87,7 +85,7 @@ REFINED_STAT_ROW_REGIONS = [
     (-1532, 755, -1420, 775),  # row 4
 ]
 
-REFINE_STONES_USED_REGION =  (-1480, 1005, -1430, 1030)
+REFINE_STONES_USED_REGION =  (-1477, 1005, -1430, 1030)
 REFINE_STONES_LEFT_REGION = (-1560, 850, -1512, 870)
 
 # TRIAL AND ERROR
@@ -133,13 +131,82 @@ LOCK_BUTTON_POSITIONS_VISUAL_ONLY = [
     (-1725, 765),  # lock 4
 ]
 
-
 # ─────────────────────────────────────────────
-# STAT PREFERENCES — Edit these
+# INVENTORY NAVIGATION
 # ─────────────────────────────────────────────
 
-# Stats you WANT to keep — script will confirm if ANY of these appear.
-# Use lowercase partial strings; the OCR text will be matched against each.
+# Drag scroll in inventory — drag from bottom to top to scroll down
+INVENTORY_SCROLL_START = (-1731, 768)  # calibrate
+INVENTORY_SCROLL_END   =(-1730, 465)  # calibrate
+# 8th row
+
+# INVENTORY_SCROLL_START = (-1731, 768)  # calibrate goes to 8th row
+# INVENTORY_SCROLL_END   =(-1730, 465)  # calibrate
+
+# --------------- gear detail view ---------
+# RING_RECYCLE_BUTTON = (-1600, 620)  # calibrate
+RING_REFINE_BUTTON = (-1600, 640) # calibrate
+# LOCK_UNLOCK_BUTTON = (-1600,680) # calibrate
+
+BOOTS_REFINE_BUTTON =(-1600, 652)
+BELT_REFINE_BUTTON = (-1600, 700)
+BRACER_REFINE_BUTTON =(-1600,635)
+NECKLACE_REFINE_BUTTON =(-1600,648)
+ARMOR_REFINE_BUTTON =(-1600,651)
+HELMET_REFINE_BUTTON =(-1600,648)
+WEAPON_REFINE_BUTTON =(-1600,642)
+
+
+# -----------------------------
+
+
+GEAR_NAME_REGION = (-1650, 520, -1500, 700)
+
+POPUP_DISMISS_BUTTON = (-1901, 704)
+
+GEAR_NAME_KEYWORDS = {
+    "boot": BOOTS_REFINE_BUTTON, 
+    "ring": RING_REFINE_BUTTON,
+    "belt": BELT_REFINE_BUTTON,
+    "bracer":BRACER_REFINE_BUTTON,
+    # "necklace":NECKLACE_REFINE_BUTTON,
+    "armor":ARMOR_REFINE_BUTTON,
+    "helmet":HELMET_REFINE_BUTTON,
+    # "weapon":WEAPON_REFINE_BUTTON,
+}
+
+
+# First gear slot position in inventory
+GEAR_SLOT_START = (-1871, 667) # calibrate
+
+# Grid layout of gear slots
+GEAR_SLOT_COLS = 7
+GEAR_SLOT_WIDTH = 50   # pixels between columns — calibrate
+GEAR_SLOT_HEIGHT = 50  # pixels between rows — calibrate
+
+
+
+
+# Back button to exit refine
+BACK_BUTTON = (-1891, 844) # calibrate
+# pack button to open inventory
+PACK_BUTTON =  (-1850, 844)
+
+
+# Region that shows lock status text — read to check if gear is locked before recycling
+GEAR_LOCK_STATUS_REGION = (-1470, 910, -1405, 940)  # T&R
+
+# Text that appears when gear IS locked — if this appears do not recycle
+GEAR_LOCKED_TEXT = "unlock"
+
+# How many items to process before scrolling again
+# ITEMS_PER_SCROLL = 7
+
+# Number of gear items to process in one session
+MAX_GEAR_ITEMS = 20
+# ─────────────────────────────────────────────
+# STAT PREFERENCES
+# ─────────────────────────────────────────────
 DESIRED_STATS = [ 
     "all skills",
     "luck"
@@ -159,56 +226,13 @@ DESIRED_STATS_NEEDED = 2
 # ─────────────────────────────────────────────
 
 # Stop refining this gear after using this many stones - includes phase 2
-MAX_STONES_PER_GEAR = 3000
+MAX_STONES_PER_GEAR = 4000
 ORANGE_BUFFER = 500
 ALL_SKILLS_LIMIT = 1000 # stones used in search of all skills before reset
 
 REFINE_DELAY = 1.0 # delay between refine click - match to game so refine stones usage is accurate
 # Delay (seconds) between actions — increase if BlueStacks is slow 0.2 ia default
 CLICK_DELAY       = 0.2
-
-# ─────────────────────────────────────────────
-# INVENTORY NAVIGATION
-# ─────────────────────────────────────────────
-
-# Drag scroll in inventory — drag from bottom to top to scroll down
-INVENTORY_SCROLL_START = (-1731, 768)  # calibrate
-INVENTORY_SCROLL_END   =(-1730, 465)  # calibrate
-
-# First gear slot position in inventory
-GEAR_SLOT_START = (-1871, 667) # calibrate
-
-# Grid layout of gear slots
-GEAR_SLOT_COLS = 7
-GEAR_SLOT_WIDTH = 50   # pixels between columns — calibrate
-GEAR_SLOT_HEIGHT = 50  # pixels between rows — calibrate
-
-
-
-
-# in gear detail view ---------
-RECYCLE_BUTTON = (-1600, 620)  # calibrate
-GEAR_REFINE_BUTTON = (-1600, 640) # calibrate
-LOCK_UNLOCK_BUTTON = (-1600,680) # calibrate
-# -----------------------------
-
-# Back button to exit refine
-BACK_BUTTON = (-1891, 844) # calibrate
-# pack button to open inventory
-PACK_BUTTON =  (-1850, 844)
-
-
-# Region that shows lock status text — read to check if gear is locked before recycling
-GEAR_LOCK_STATUS_REGION = (-1470, 910, -1405, 940)  # T&R
-
-# Text that appears when gear IS locked — if this appears do not recycle
-GEAR_LOCKED_TEXT = "unlock"
-
-# How many items to process before scrolling again
-# ITEMS_PER_SCROLL = 7
-
-# Number of gear items to process in one session
-MAX_GEAR_ITEMS = 20
 
 # ─────────────────────────────────────────────
 # SETUP
@@ -536,21 +560,28 @@ def is_gear_locked():
     print(f"  Gear lock status: '{text.strip()}' — {'LOCKED' if locked else 'not locked'}")
     return locked
 
+def get_refine_button_for_gear(gear_name):
+    """Return the correct refine button position based on gear name."""
+    for keyword, button_pos in GEAR_NAME_KEYWORDS.items():
+        if keyword in gear_name.lower():
+            print(f"  Detected gear type '{keyword}' — using alternate refine button")
+            return button_pos
+    return None
 
-def recycle_gear():
-    """
-    Recycle the current gear item.
-    Checks it is not locked before recycling.
-    Returns True if recycled, False if locked (skipped).
-    """
-    print("  Attempting to recycle gear...")
-    if is_gear_locked():
-        click(LOCK_UNLOCK_BUTTON)
+# def recycle_gear():
+#     """
+#     Recycle the current gear item.
+#     Checks it is not locked before recycling.
+#     Returns True if recycled, False if locked (skipped).
+#     """
+#     print("  Attempting to recycle gear...")
+#     if is_gear_locked():
+#         click(LOCK_UNLOCK_BUTTON)
 
-    click(RECYCLE_BUTTON)
-    time.sleep(0.3)
-    print("  ✓ Gear recycled")
-    return True
+#     click(RECYCLE_BUTTON)
+#     time.sleep(0.3)
+#     print("  ✓ Gear recycled")
+#     return True
 
 
 def go_back_to_inventory():
@@ -612,20 +643,28 @@ def calibration_mode():
 
     positions = [
         # Inventory navigation
-        "INVENTORY SCROLL start (bottom of drag)",
-        "INVENTORY SCROLL end (top of drag)",
-        "GEAR SLOT 1 (first item in inventory)",
+        # "INVENTORY SCROLL start (bottom of drag)",
+        # "INVENTORY SCROLL end (top of drag)",
+        # "GEAR SLOT 1 (first item in inventory)",
         # "GEAR REFINE button (in gear detail view)",
+# LOCK_UNLOCK_BUTTON = (-1600,680) # calibrate
+        "BOOTS_REFINE_BUTTON",
+        "BELT_REFINE_BUTTON",
+        "BRACER_REFINE_BUTTON",
+        "NECKLACE_REFINE_BUTTON",
+        "ARMOR_REFINE_BUTTON",
+        "HELMET_REFINE_BUTTON", 
+        "WEAPON_REFINE_BUTTON"
         # "BACK button (return to inventory)",
         # "RECYCLE button (in gear detail view)",
-        "TOP-LEFT of gear lock status text area",
-        "BOTTOM-RIGHT of gear lock status text area",
+        # "TOP-LEFT of gear lock status text area",
+        # "BOTTOM-RIGHT of gear lock status text area",
     ]
 
     results = {}
     for label in positions:
         print(f"Hover over: {label}")
-        time.sleep(4)
+        time.sleep(10)
         pos = pyautogui.position()
         results[label] = pos
         print(f"  → {pos}\n")
@@ -633,16 +672,25 @@ def calibration_mode():
     r = results
 
     # Inventory navigation
-    print(f"INVENTORY_SCROLL_START = {r['INVENTORY SCROLL start (bottom of drag)']}")
-    print(f"INVENTORY_SCROLL_END   = {r['INVENTORY SCROLL end (top of drag)']}")
-    print(f"GEAR_SLOT_START        = {r['GEAR SLOT 1 (first item in inventory)']}")
+    # print(f"INVENTORY_SCROLL_START = {r['INVENTORY SCROLL start (bottom of drag)']}")
+    # print(f"INVENTORY_SCROLL_END   = {r['INVENTORY SCROLL end (top of drag)']}")
+    # print(f"GEAR_SLOT_START        = {r['GEAR SLOT 1 (first item in inventory)']}")
     # print(f"GEAR_REFINE_BUTTON     = {r['GEAR REFINE button (in gear detail view)']}")
+    print(f"BOOTS_REFINE_BUTTON     = {r['BOOTS_REFINE_BUTTON']}")
+    print(f"BELT_REFINE_BUTTON     = {r['BELT_REFINE_BUTTON']}")
+    print(f"BRACER_REFINE_BUTTON     = {r['BRACER_REFINE_BUTTON']}")
+    print(f"NECKLACE_REFINE_BUTTON     = {r['NECKLACE_REFINE_BUTTON']}")
+    print(f"ARMOR_REFINE_BUTTON     = {r['ARMOR_REFINE_BUTTON']}")
+    print(f"HELMET_REFINE_BUTTON     = {r['HELMET_REFINE_BUTTON']}")
+    print(f"WEAPON_REFINE_BUTTON     = {r['WEAPON_REFINE_BUTTON']}")
+
+
     # print(f"BACK_BUTTON            = {r['BACK button (return to inventory)']}")
     # print(f"RECYCLE_BUTTON         = {r['RECYCLE button (in gear detail view)']}")
 
-    tl = r['TOP-LEFT of gear lock status text area']
-    br = r['BOTTOM-RIGHT of gear lock status text area']
-    print(f"GEAR_LOCK_STATUS_REGION = ({tl[0]}, {tl[1]}, {br[0]}, {br[1]})")
+    # tl = r['TOP-LEFT of gear lock status text area']
+    # br = r['BOTTOM-RIGHT of gear lock status text area']
+    # print(f"GEAR_LOCK_STATUS_REGION = ({tl[0]}, {tl[1]}, {br[0]}, {br[1]})")
 
 def visualise_coordinates():
     print("=== VISUALISE COORDINATES ===")
@@ -711,6 +759,7 @@ def visualise_coordinates():
 
     draw_region(REFINE_STONES_LEFT_REGION, "REFINE STONES",  (100, 200, 100))
     draw_region(REFINE_STONES_USED_REGION, "REFINE STONES",  (100, 200, 100))
+    draw_region(GEAR_NAME_REGION, "GEAR NAME",  (100, 200, 100))
     # ── Inventory navigation ──
     # draw_region(GEAR_LOCK_STATUS_REGION, "LOCK STATUS",  (100, 200, 100))
 
@@ -755,14 +804,46 @@ def run_automation():
         time.sleep(0.3)
         # Click the refine button to enter refine view
         # TODO MISSES FOR BOOTS - rwead gear name then use different click position, if no gear found click in a specific area to remove popup and move to next item
+
+        # Read gear name to determine correct refine button position
+        gear_name = ocr_region(GEAR_NAME_REGION, debug=True)
+        print(f"  Gear name: '{gear_name.strip()}'")
+
+        if not gear_name.strip():
+            print("  No gear found in slot — dismissing any popup and moving to next slot...")
+            click(POPUP_DISMISS_BUTTON)
+            time.sleep(0.3)
+            current_slot += 1
+            continue
+
+        # Get correct refine button for this gear type
+        refine_button = get_refine_button_for_gear(gear_name)
+        if refine_button is None:
+            click(POPUP_DISMISS_BUTTON)
+            time.sleep(0.3)
+            current_slot += 1
+            continue
         print("  Opening refine view...")
-        click(GEAR_REFINE_BUTTON)
+        click(refine_button)
         time.sleep(2) # refine stones need to load
 
-        refine_stones_left = int(re.sub(r'[^0-9]', '',ocr_region(REFINE_STONES_LEFT_REGION,debug=True)))
 
-        refine_stone_region_result = ocr_region(REFINE_STONES_USED_REGION,debug=True)
-        refine_stones_used_before_refine = int(re.sub(r'[^0-9]', '', refine_stone_region_result))
+        # Read refine stone counts
+        try:
+            refine_stones_left = int(re.sub(r'[^0-9]', '',ocr_region(REFINE_STONES_LEFT_REGION,debug=True)))
+        except ValueError: # also catches when refine button was missed for whtever reason - weird gear item
+            print("  ⚠ Could not read refine stones left — dismissing and skipping")
+            click(POPUP_DISMISS_BUTTON)
+            time.sleep(0.3)
+            current_slot += 1
+            continue
+
+        try:
+            refine_stone_region_result = ocr_region(REFINE_STONES_USED_REGION,debug=True)
+            refine_stones_used_before_refine = int(re.sub(r'[^0-9]', '',refine_stone_region_result))
+        except ValueError:
+            print("  ⚠ Could not read refine stones used — defaulting to 0")
+            refine_stones_used_before_refine = 0
 
         if refine_stones_left > MAX_STONES_PER_GEAR: # refine_stones_used_before_refine == 0 and
             # Run the refine loop — returns whether phase 2 was needed

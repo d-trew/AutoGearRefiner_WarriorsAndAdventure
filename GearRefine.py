@@ -33,7 +33,7 @@ from PIL import Image, ImageGrab
 # Path to Tesseract executable
 TESSERACT_PATH = r"C:\Users\Daniel's laptop\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"
 
-CALIBRATION_MODE = True
+CALIBRATION_MODE = False
 VISUALISATION_MODE = False
 
 TEST_OCR_MODE = False
@@ -85,8 +85,11 @@ REFINED_STAT_ROW_REGIONS = [
     (-1532, 755, -1420, 775),  # row 4
 ]
 
-REFINE_STONES_USED_REGION =  (-1477, 1005, -1430, 1030)
-REFINE_STONES_LEFT_REGION = (-1560, 850, -1512, 870)
+# REFINE_STONES_USED_REGION =  (-1477, 1005, -1430, 1030)
+# REFINE_STONES_LEFT_REGION = (-1560, 850, -1512, 870)
+
+REFINE_STONES_USED_REGION =  (-1700, 1005, -1430, 1030)
+REFINE_STONES_LEFT_REGION = (-1650, 850, -1480, 870)
 
 # TRIAL AND ERROR
 # Lock button X position (they're all at the same X, only Y changes per row)
@@ -136,9 +139,17 @@ LOCK_BUTTON_POSITIONS_VISUAL_ONLY = [
 # ─────────────────────────────────────────────
 
 # Drag scroll in inventory — drag from bottom to top to scroll down
-INVENTORY_SCROLL_START = (-1731, 768)  # calibrate
-INVENTORY_SCROLL_END   =(-1730, 465)  # calibrate
-# 8th row
+#  OLD
+# INVENTORY_SCROLL_START = (-1731, 768)  # calibrate
+# INVENTORY_SCROLL_END   =(-1730, 718)  # calibrate 1st
+# INVENTORY_SCROLL_END   =(-1730, 465)  # calibrate 8th row
+# INVENTORY_SCROLL_END   =(-1730, 415)  # calibrate 9th
+# INVENTORY_SCROLL_END   =(-1730, 365)  # calibrate 10th
+
+#  NEW
+INVENTORY_SCROLL_START = (-1727, 779)
+INVENTORY_SCROLL_END = (-1727, 293)
+INVENTORY_SCROLL_MAX_SINGLE = 10 # based on inv scroll but need to figure out how it works
 
 # INVENTORY_SCROLL_START = (-1731, 768)  # calibrate goes to 8th row
 # INVENTORY_SCROLL_END   =(-1730, 465)  # calibrate
@@ -151,12 +162,14 @@ RING_REFINE_BUTTON = (-1600, 640) # calibrate
 BOOTS_REFINE_BUTTON =(-1600, 652)
 BELT_REFINE_BUTTON = (-1600, 700)
 BRACER_REFINE_BUTTON =(-1600,635)
+# BRACER_2_REFINE_BUTTON = (-1700, 850) # gold bracelet when on top row of inv has a different refine button - skipping might just be better tbh
 NECKLACE_REFINE_BUTTON =(-1600,648)
 ARMOR_REFINE_BUTTON =(-1600,651)
 HELMET_REFINE_BUTTON =(-1600,648)
 WEAPON_REFINE_BUTTON =(-1600,642)
 
-
+GOLD_BRACER_REFINE_BUTTON = (-1602, 702)
+GOLD_BRACER_REGION = (-1700, 450, -1570, 480)
 # -----------------------------
 
 
@@ -177,7 +190,8 @@ GEAR_NAME_KEYWORDS = {
 
 
 # First gear slot position in inventory
-GEAR_SLOT_START = (-1871, 667) # calibrate
+# GEAR_SLOT_START = (-1871, 667) # calibrate old ROW 2/4
+GEAR_SLOT_START = (-1873, 628) # new row 1/4
 
 # Grid layout of gear slots
 GEAR_SLOT_COLS = 7
@@ -460,7 +474,7 @@ def lock_orange_rows(regions):
         click_lock_for_row(i)
     return orange
 
-
+# TODO IF NO REFINE BUT GOES TO PHASE 2 - CURRENT GEAR CAN BE RECYCLED AAS THIS WAS PREVIOUSLY REFINED AND LOCATION IS KNOWN
 def refine_for_orange(phase1_locked_rows,stones_used_phase1):
     print("\n=== PHASE 2: Refining for 3 orange stats ===")
     stones_used_phase2 = 0
@@ -522,15 +536,58 @@ def refine_for_orange(phase1_locked_rows,stones_used_phase1):
 # ------------------------------------------------------ INVENTORY NAVIGATION ZONE ---------------------------------------------------------------
 
 
-def scroll_inventory():
-    """Drag scroll the inventory to reveal more items."""
-    print("  Scrolling inventory...")
-    pyautogui.mouseDown(INVENTORY_SCROLL_START[0], INVENTORY_SCROLL_START[1])
-    time.sleep(0.1)
-    pyautogui.moveTo(INVENTORY_SCROLL_END[0], INVENTORY_SCROLL_END[1], duration=0.5)
-    time.sleep(0.1)
-    pyautogui.mouseUp()
-    time.sleep(0.3)
+# def scroll_inventory():
+#     """Drag scroll the inventory to reveal more items."""
+#     print("  Scrolling inventory...")
+#     pyautogui.mouseDown(INVENTORY_SCROLL_START[0], INVENTORY_SCROLL_START[1])
+#     time.sleep(0.1)
+#     pyautogui.moveTo(INVENTORY_SCROLL_END[0], INVENTORY_SCROLL_END[1], duration=0.5)
+#     time.sleep(0.1)
+#     pyautogui.mouseUp()
+#     time.sleep(0.3)
+
+def scroll_inventory(target_row=None):
+    """
+    Drag scroll the inventory.
+    target_row: if specified, scrolls to that row number. Otherwise performs a single default scroll.
+    """
+    print(f"  Scrolling inventory{f' to row {target_row}' if target_row else ''}...")
+
+    if target_row is None:
+        # Default behaviour — single scroll to max
+        pyautogui.mouseDown(INVENTORY_SCROLL_START[0], INVENTORY_SCROLL_START[1])
+        time.sleep(0.1)
+        pyautogui.moveTo(INVENTORY_SCROLL_END[0], INVENTORY_SCROLL_END[1], duration=0.5)
+        time.sleep(0.1)
+        pyautogui.mouseUp()
+        time.sleep(0.3)
+    elif target_row <= INVENTORY_SCROLL_MAX_SINGLE:
+        end_y = INVENTORY_SCROLL_END[1]
+        start_y = INVENTORY_SCROLL_START[1]
+        # 50 seems to be the scroll difference per row even  (scroll start - scroll end) / how many rows that moves
+        # taking away from start_y means the mouse end point lowers - moving less distance (backwards as on second monitor)
+        scroll_end_y = int(start_y - ((target_row) * 50)) 
+        pyautogui.mouseDown(INVENTORY_SCROLL_START[0], INVENTORY_SCROLL_START[1])
+        time.sleep(0.1)
+        pyautogui.moveTo(INVENTORY_SCROLL_END[0], scroll_end_y, duration=0.5)
+        time.sleep(0.1)
+        pyautogui.mouseUp()
+        time.sleep(0.3)
+    else:
+        # Multiple scrolls needed
+        scrolls_needed = target_row // INVENTORY_SCROLL_MAX_SINGLE
+        remainder = target_row % INVENTORY_SCROLL_MAX_SINGLE
+        print(f"  Requires {scrolls_needed} full scroll(s) + remainder {remainder}")
+        for s in range(scrolls_needed):
+            print(f"  Full scroll {s+1}/{scrolls_needed}...")
+            pyautogui.mouseDown(INVENTORY_SCROLL_START[0], INVENTORY_SCROLL_START[1])
+            time.sleep(0.1)
+            pyautogui.moveTo(INVENTORY_SCROLL_END[0], INVENTORY_SCROLL_END[1], duration=0.5)
+            time.sleep(0.1)
+            pyautogui.mouseUp()
+            time.sleep(0.3)
+        if remainder > 0:
+            scroll_inventory(remainder)
 
 def get_gear_slot_pos(slot_index):
     """
@@ -565,7 +622,10 @@ def get_refine_button_for_gear(gear_name):
     for keyword, button_pos in GEAR_NAME_KEYWORDS.items():
         if keyword in gear_name.lower():
             print(f"  Detected gear type '{keyword}' — using alternate refine button")
-            return button_pos
+            if keyword == "bracer" and ocr_region(GOLD_BRACER_REGION) == "gold bracelet":
+                return GOLD_BRACER_REFINE_BUTTON
+            else:
+                return button_pos
     return None
 
 # def recycle_gear():
@@ -756,10 +816,10 @@ def visualise_coordinates():
     for i, row in enumerate(REFINED_STAT_ROW_REGIONS):
         draw_region(row, f"REF ROW {i+1}", row_colours[i])
 
-
-    draw_region(REFINE_STONES_LEFT_REGION, "REFINE STONES",  (100, 200, 100))
-    draw_region(REFINE_STONES_USED_REGION, "REFINE STONES",  (100, 200, 100))
-    draw_region(GEAR_NAME_REGION, "GEAR NAME",  (100, 200, 100))
+    draw_region(GOLD_BRACER_REGION, "GOLD BRACER NAME",  (100, 200, 100))
+    # draw_region(REFINE_STONES_LEFT_REGION, "REFINE STONES",  (100, 200, 100))
+    # draw_region(REFINE_STONES_USED_REGION, "REFINE STONES",  (100, 200, 100))
+    # draw_region(GEAR_NAME_REGION, "GEAR NAME",  (100, 200, 100))
     # ── Inventory navigation ──
     # draw_region(GEAR_LOCK_STATUS_REGION, "LOCK STATUS",  (100, 200, 100))
 
@@ -772,13 +832,10 @@ def visualise_coordinates():
 # ─────────────────────────────────────────────
 # MAIN LOOP
 # ─────────────────────────────────────────────
-# TODO successful refining moves the click point for selecting the next gear, make sure after 6 moves it goes down instead then goes left 6 time etc in a snake
 # TODO deal with errors that will arise with incorrect lvl gear
 # TODO add luck maybe read gear type or dont
-# TODO checks if enough stones before refining if not enough stop
-# TODO everytime refine is started ss the item for debug
 
-def run_automation():
+def run_automation(starting_row=INVENTORY_SCROLL_MAX_SINGLE):
     """
     Master loop — iterates through gear items, refines each one,
     recycles if needed, and moves to the next.
@@ -786,13 +843,13 @@ def run_automation():
     print("=== AUTOMATION STARTING ===")
     print(f"Processing up to {MAX_GEAR_ITEMS} gear items")
     
-    scroll_inventory()
+    scroll_inventory(starting_row)
 
 
     current_slot = 0
     items_processed = 0
 
-    while items_processed < MAX_GEAR_ITEMS or current_slot<=20: # after 20 slots is a new page of inventory, which would need to scroll further but 20 items checked is already good enough
+    while items_processed < MAX_GEAR_ITEMS and current_slot<=20: # after 20 slots is a new page of inventory, which would need to scroll further but 20 items checked is already good enough
         emergency_stop_check()
 
         print(f"\n{'='*60}")
@@ -829,18 +886,40 @@ def run_automation():
 
 
         # Read refine stone counts
+        # try:
+        #     refine_stones_left = int(re.sub(r'[^0-9]', '',ocr_region(REFINE_STONES_LEFT_REGION,debug=True)))
+        # except ValueError: # also catches when refine button was missed for whtever reason - weird gear item
+        #     print("  ⚠ Could not read refine stones left — dismissing and skipping")
+        #     click(POPUP_DISMISS_BUTTON)
+        #     time.sleep(0.3)
+        #     current_slot += 1
+        #     continue
+
+        # try:
+        #     refine_stone_region_result = ocr_region(REFINE_STONES_USED_REGION,debug=True)
+        #     refine_stones_used_before_refine = int(re.sub(r'[^0-9]', '',refine_stone_region_result))
+        # except ValueError:
+        #     print("  ⚠ Could not read refine stones used — defaulting to 0")
+        #     refine_stones_used_before_refine = 0
+
         try:
-            refine_stones_left = int(re.sub(r'[^0-9]', '',ocr_region(REFINE_STONES_LEFT_REGION,debug=True)))
-        except ValueError: # also catches when refine button was missed for whtever reason - weird gear item
-            print("  ⚠ Could not read refine stones left — dismissing and skipping")
+            raw = ocr_region(REFINE_STONES_LEFT_REGION, debug=True)
+            refine_stones_left = extract_first_number_after_colon(raw)
+            if refine_stones_left is None:
+                raise ValueError(f"No number found in: '{raw}'")
+            print(f"  Refine stones left: {refine_stones_left}")
+        except ValueError as e:
+            # print("Trying alternate refine button") CBA
+            print(f"  ⚠ Could not read refine stones left ({e}) — skipping")
             click(POPUP_DISMISS_BUTTON)
             time.sleep(0.3)
             current_slot += 1
             continue
 
         try:
-            refine_stone_region_result = ocr_region(REFINE_STONES_USED_REGION,debug=True)
-            refine_stones_used_before_refine = int(re.sub(r'[^0-9]', '',refine_stone_region_result))
+            raw = ocr_region(REFINE_STONES_USED_REGION, debug=True)
+            refine_stones_used_before_refine = extract_first_number_after_colon(raw) or 0
+            print(f"  Refine stones used on item: {refine_stones_used_before_refine}")
         except ValueError:
             print("  ⚠ Could not read refine stones used — defaulting to 0")
             refine_stones_used_before_refine = 0
@@ -856,7 +935,7 @@ def run_automation():
             break
         go_back_to_inventory()
         time.sleep(0.3)
-        scroll_inventory()
+        scroll_inventory(starting_row)
         current_slot += 1
         # INVENTORY ORDER BASED OFF ITEM CP SO ITEMS MOVE AFTER REFINE
         # if not successful_refine:
@@ -908,6 +987,16 @@ def evaluate_stat(text, stat_list, locked_all_skills=False):
         print(f"  ? Unknown stat, rejecting: {text.strip()}")
     return matched
 
+def extract_first_number_after_colon(text):
+    """Extract the first number that appears after a colon in the text."""
+    match = re.search(r':\s*([0-9]+)', text)
+    if match:
+        return int(match.group(1))
+    # Fallback — just grab the first number found
+    match = re.search(r'[0-9]+', text)
+    if match:
+        return int(match.group(0))
+    return None
 
 def refine_loop(stones_used = 0):
     """
@@ -1048,8 +1137,7 @@ def refine_loop(stones_used = 0):
                         locked_rows.append(found)
                         locked_desired_count += 1
                         any_after_lock_found = True
-                        print(f"  → Row {i+1} '{matched_after}' locked! --------------------------------------------------------------------------- MAX WIN ----------------------------------------------------------------------------------------------")
-            # wrong place or something
+                        print(f"  → Row {i+1} '{matched_after}' locked!")
             if not any_after_lock_found:
                 # No desired stats found — bad rare stat, reroll
                 print("  No desired after-lock stats found — rerolling...")
@@ -1101,7 +1189,7 @@ if __name__ == "__main__":
     # print(f"Colour now: {pyautogui.pixel(x, y)}")
     # input("Now trigger the popup in BlueStacks, then press Enter...")
     # print(f"Colour with popup: {pyautogui.pixel(x, y)}")
-
+    start_time = time.time()
     clear_debug_files("debug/orange")
 
     clear_debug_files("debug", prefix="capture_")
@@ -1113,4 +1201,11 @@ if __name__ == "__main__":
     elif VISUALISATION_MODE:
         visualise_coordinates()
     else:
-        run_automation()
+        run_automation(22) # starting row index starts at 0 - determines what gear to start with as inv is in gear order
+
+
+    elapsed = time.time() - start_time
+    hours = int(elapsed // 3600)
+    minutes = int((elapsed % 3600) // 60)
+    seconds = int(elapsed % 60)
+    print(f"\n Time Taken: {hours}h {minutes}m {seconds}s")

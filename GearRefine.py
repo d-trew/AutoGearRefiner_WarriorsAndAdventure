@@ -24,7 +24,11 @@ import pytesseract
 import time
 import keyboard
 import sys
-from PIL import Image, ImageGrab
+from PIL import Image, ImageGrab, ImageEnhance, ImageFilter
+
+import threading
+import win32gui
+import win32con
 
 # ─────────────────────────────────────────────
 # CONFIGURATION — Edit these values
@@ -35,7 +39,7 @@ TESSERACT_PATH = r"C:\Users\Daniel's laptop\AppData\Local\Programs\Tesseract-OCR
 
 REFINE_SCAN_MODE = False
 CALIBRATION_MODE = False
-VISUALISATION_MODE = True
+VISUALISATION_MODE = False
 
 TEST_OCR_MODE = False
 TEST_OCR_IMAGE = "debug\multimon_test0.png"
@@ -162,7 +166,7 @@ RING_REFINE_BUTTON = (-1600, 640) # calibrate
 
 BOOTS_REFINE_BUTTON =(-1600, 652)
 BELT_REFINE_BUTTON = (-1600, 700)
-BRACER_REFINE_BUTTON =(-1600,635)
+BRACER_REFINE_BUTTON =(-1600,640)
 # BRACER_2_REFINE_BUTTON = (-1700, 850) # gold bracelet when on top row of inv has a different refine button - skipping might just be better tbh
 NECKLACE_REFINE_BUTTON =(-1600,648)
 ARMOR_REFINE_BUTTON =(-1600,651)
@@ -194,7 +198,7 @@ GEAR_NAME_KEYWORDS = {
 
 # First gear slot position in inventory
 # GEAR_SLOT_START = (-1871, 667) # calibrate old ROW 2/4
-GEAR_SLOT_START = (-1873, 628) # new row 1/4
+GEAR_SLOT_START = (-1864, 632) # new row 1/4
 
 # Grid layout of gear slots
 GEAR_SLOT_COLS = 7
@@ -266,17 +270,17 @@ pyautogui.PAUSE    = 0.1
 # ─────────────────────────────────────────────
 
 def clear_debug_files(directory, prefix=""):
-    files = [f for f in os.listdir(directory) if f.startswith(prefix)]
+    if directory in os.listdir():
+        files = [f for f in os.listdir(directory) if f.startswith(prefix)]
     
-    if not files:
-        print(f"  No files found in '{directory}' with prefix '{prefix}'")
-        return
-    
-    for f in files:
-        os.remove(os.path.join(directory, f))
-    
-    print(f"  Deleted {len(files)} file(s) from '{directory}'")
-
+        if not files:
+            print(f"  No files found in '{directory}' with prefix '{prefix}'")
+            return
+        
+        for f in files:
+            os.remove(os.path.join(directory, f))
+        
+        print(f"  Deleted {len(files)} file(s) from '{directory}'")
 
 
 def click(pos, delay=CLICK_DELAY):
@@ -298,7 +302,6 @@ def parse_gear_info(gear_text):
     Extract gear part, polished level and score from OCR gear text.
     Looks for 'part: X' and 'polished: X'
     """
-    import re
     gear_text = gear_text.lower()
     
     part_match     = re.search(r'part[:\s]+(\w+)', gear_text)
@@ -318,11 +321,10 @@ def capture_region(region):
     screenshot = ImageGrab.grab(bbox=(left, top, right, bottom), all_screens=True)
     return screenshot
 
-from PIL import ImageEnhance, ImageFilter
+
 
 def test_ocr_from_file(path):
     """Load a saved debug image and run OCR on it to test settings."""
-    from PIL import ImageEnhance, ImageFilter
     
     img = Image.open(path)
     print(f"Loaded image: {path} | Size: {img.size}")
@@ -348,7 +350,6 @@ def test_ocr_from_file(path):
 
 def clean_ocr_text(text):
     """Normalise common OCR errors before matching."""
-    import re
     text = text.lower()
     text = re.sub(r'[\n\|]', ' ', text) # replaces /n and | with a space
     text = re.sub(r'\s+', ' ', text) # replaces more than 1 space with 1 space
@@ -376,7 +377,7 @@ def ocr_region(region, debug=False):
 
     if debug == True:
         os.makedirs("debug/captures", exist_ok=True)
-        img.save(f"debug/capture_{capture_count:04d}.png")
+        img.save(f"debug/captures/capture_{capture_count:04d}.png")
         print(f"  [DEBUG] Saved capture_{capture_count:04d}.png")
         capture_count += 1
     
@@ -401,9 +402,9 @@ def find_and_click_lock(target_stat):
         if target_stat in row_text:
             lock_pos = lock(i)
             print(f"  Found '{target_stat}' in row {i+1} — clicked lock at {lock_pos}")
-            os.makedirs("debug", exist_ok=True)
+            os.makedirs("debug/captures", exist_ok=True)
             img = capture_region(region)
-            img.save(f"debug/capture_{capture_count:04d}.png")
+            img.save(f"debug/captures/capture_{capture_count:04d}.png")
             print(f"  [DEBUG] Saved capture_{capture_count:04d}.png")
             capture_count += 1
             return i  # ← return index instead of True
@@ -691,7 +692,6 @@ def wait_for_popup(timeout=0.05):
         return True
     return False
 
-import threading
 
 # Global stop flag
 stop_flag = False
@@ -703,9 +703,10 @@ def listen_for_stop():
     print("\n🛑 F9 pressed — stopping after current action...")
 
 # Start the listener in a background thread
-stop_thread = threading.Thread(target=listen_for_stop, daemon=True)
-stop_thread.start()
-
+def start_stop_listener():
+    global stop_thread
+    stop_thread = threading.Thread(target=listen_for_stop, daemon=True)
+    stop_thread.start()
 
 def emergency_stop_check():
     if stop_flag:
@@ -861,7 +862,6 @@ def calibration_mode():
 
 def visualise_coordinates():
     print("=== VISUALISE COORDINATES ===")
-    from PIL import ImageDraw
 
     SECONDARY_LEFT   = -1920
     SECONDARY_TOP    = 275
@@ -1082,12 +1082,12 @@ def run_automation(starting_row=INVENTORY_SCROLL_MAX_SINGLE):
 
     col_w = 5
     row_w = 5
-    stones_w = 12
+    stones_w = 20
     type_w = 10
     polished_w = 10
 
     header = (f"  {'TYPE':<{type_w}} {'POLISHED':<{polished_w}} "
-              f"{'STONES':<{stones_w}} {'ROW':<{row_w}} {'COL':<{col_w}} SUCCESS?")
+              f"{'STONES BEFORE REFINE':<{stones_w}} {'ROW':<{row_w}} {'COL':<{col_w}} SUCCESS?")
     print(f"\n{header}")
     print(f"  {'─' * len(header)}")
 
@@ -1099,11 +1099,7 @@ def run_automation(starting_row=INVENTORY_SCROLL_MAX_SINGLE):
               f"{stones:<{stones_w}} {row:<{row_w}} {col:<{col_w}} {success_str}")
 
     print(f"  {'─' * len(header)}")
-    best = sorted_items[0]
-    gear_type, polished = parse_gear_info(best[0])
-    print(f"\n  Most refined: {gear_type} {polished} — "
-          f"{best[1]} stones | Row {best[2]} Col {best[3]} | "
-          f"{'Success ✓' if best[4] else 'Recycled ✗'}")
+
 
 def evaluate_stat(text, stat_list, locked_all_skills=False):
     """
@@ -1197,10 +1193,6 @@ def refine_loop(stones_used = 0):
             break
 
         print(f"[Stone {stones_used + get_refine_cost(len(locked_rows))}/{MAX_STONES_PER_GEAR}] Clicking Refine...")
-        if stones_used > 0 and stones_used % 100 == 0:
-            print(f""" ╔══════════════════════════════════╗
-                       ║  STONES USED: {stones_used:<5}  /  {MAX_STONES_PER_GEAR:<5}   ║
-                       ╚══════════════════════════════════╝""")
             
         click(REFINE_BUTTON,delay=REFINE_DELAY)
         emergency_stop_check()
@@ -1283,7 +1275,6 @@ def refine_loop(stones_used = 0):
                 break
 
         stones_used += get_refine_cost(len(locked_rows))
-        # time.sleep(CLICK_DELAY)
 
     if not phase1_success and not lock_not_found:
         print("\n⚠ Phase 1 incomplete — going to Phase 2 for 3 orange stats")
@@ -1312,7 +1303,6 @@ if __name__ == "__main__":
     # print("Saved — check debug/multimon_test.png")
 
     # # popup pixel colour
-    # import pyautogui, time
     # print("Waiting 3s — move mouse to a pixel that CHANGES when popup appears...")
     # time.sleep(3)
     # x, y = pyautogui.position()
@@ -1321,11 +1311,15 @@ if __name__ == "__main__":
     # print(f"Colour now: {pyautogui.pixel(x, y)}")
     # input("Now trigger the popup in BlueStacks, then press Enter...")
     # print(f"Colour with popup: {pyautogui.pixel(x, y)}")
+
     start_time = time.time()
     clear_debug_files("debug/orange")
 
     clear_debug_files("debug/captures")
-    
+
+    # move_game_window()
+    start_stop_listener()
+
     if REFINE_SCAN_MODE:
         print("===================================Enter starting row===================================")
         starting_row = int(input())

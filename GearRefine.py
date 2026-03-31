@@ -18,15 +18,18 @@ Press F9 at any time to emergency stop.
 """
 import os
 import re
+import json
+import threading
+import time
+from datetime import datetime
+from pathlib import Path
 
 import pyautogui
 import pytesseract
-import time
 import keyboard
 import sys
-from PIL import Image, ImageGrab, ImageEnhance, ImageFilter
+from PIL import Image, ImageGrab, ImageEnhance, ImageFilter, ImageDraw
 
-import threading
 import win32gui
 import win32con
 
@@ -189,10 +192,10 @@ GEAR_NAME_KEYWORDS = {
     "ring": RING_REFINE_BUTTON,
     "belt": BELT_REFINE_BUTTON,
     "bracer":BRACER_REFINE_BUTTON,
-    # "necklace":NECKLACE_REFINE_BUTTON,
+    "necklace":NECKLACE_REFINE_BUTTON,
     "armor":ARMOR_REFINE_BUTTON,
     "helmet":HELMET_REFINE_BUTTON,
-    # "weapon":WEAPON_REFINE_BUTTON,
+    "weapon":WEAPON_REFINE_BUTTON,
 }
 
 
@@ -228,6 +231,9 @@ MAX_GEAR_ITEMS = 20
 # ─────────────────────────────────────────────
 # STAT PREFERENCES
 # ─────────────────────────────────────────────
+
+LOCKABLE_STATS = 2
+
 DESIRED_STATS = [ 
     "all skills",
     "luck"
@@ -247,9 +253,12 @@ DESIRED_STATS_NEEDED = 2
 # ─────────────────────────────────────────────
 
 # Stop refining this gear after using this many stones - includes phase 2
-MAX_STONES_PER_GEAR = 4000
+MAX_STONES_PER_NON_LUCK_GEAR = 3500 # 3000 ideally
+MAX_STONES_PER_LUCK_GEAR = 12500
+
 ORANGE_BUFFER = 500
 ALL_SKILLS_LIMIT = 1000 # stones used in search of all skills before reset
+SIX_LUCK_LIMIT = 1000
 
 REFINE_DELAY = 1.0 # delay between refine click - match to game so refine stones usage is accurate
 # Delay (seconds) between actions — increase if BlueStacks is slow 0.2 ia default
@@ -266,21 +275,113 @@ pyautogui.PAUSE    = 0.1
 
 
 # ─────────────────────────────────────────────
+# JSON LOGGING SETUP
+# ─────────────────────────────────────────────
+
+import builtins
+
+
+class JSONLogger:
+    """Handles writing all print statements to a constantly updated JSON file."""
+
+    def __init__(self, log_file="automation_log.json"):
+        self.log_file = Path(log_file)
+        self.log_entries = []
+        self.lock = threading.Lock()
+        self.original_print = builtins.print  # safer than print
+
+        # Track session start separately
+        self.session_start = datetime.now().isoformat()
+
+        # Always start fresh each run
+        self._init_log_file()
+
+    def _init_log_file(self):
+        """Initialize (overwrite) the log file with empty structure."""
+        initial_data = {
+            "session_start": self.session_start,
+            "session_end": None,
+            "total_entries": 0,
+            "entries": []
+        }
+        with open(self.log_file, 'w', encoding='utf-8') as f:
+            json.dump(initial_data, f, indent=2, ensure_ascii=False)
+        self.log_entries = []
+
+    def log(self, message, level="INFO"):
+        """Log a message to both console and JSON file."""
+        # Use original print to avoid recursion
+        self.original_print(message)
+
+        # Create log entry
+        entry = {
+            "timestamp": datetime.now().isoformat(),
+            "level": level,
+            "message": message
+        }
+
+        # Add to entries list and save to file
+        with self.lock:
+            self.log_entries.append(entry)
+            self._save_to_file()
+
+    def _save_to_file(self):
+        """Save all log entries to JSON file."""
+        data = {
+            "session_start": self.session_start,
+            "session_end": datetime.now().isoformat(),
+            "total_entries": len(self.log_entries),
+            "entries": self.log_entries
+        }
+
+        # Write to temporary file first to avoid corruption
+        temp_file = self.log_file.with_suffix('.tmp')
+        try:
+            with open(temp_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            temp_file.replace(self.log_file)
+        except Exception as e:
+            self.original_print(f"Error saving log: {e}")
+
+    def log_error(self, message):
+        """Log an error message."""
+        self.log(message, level="ERROR")
+
+    def log_warning(self, message):
+        """Log a warning message."""
+        self.log(message, level="WARNING")
+    
+
+# Global logger instance
+logger = JSONLogger()
+
+# Replace print with our patched version
+def patched_print(*args, **kwargs):
+    message = ' '.join(str(arg) for arg in args)
+    logger.log(message)
+
+# Monkey-patch print
+print = patched_print
+
+# ─────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────
 
 def clear_debug_files(directory, prefix=""):
-    if directory in os.listdir():
-        files = [f for f in os.listdir(directory) if f.startswith(prefix)]
+    if not os.path.exists(directory):
+        print(f"  Directory '{directory}' does not exist — skipping")
+        return
     
-        if not files:
-            print(f"  No files found in '{directory}' with prefix '{prefix}'")
-            return
-        
-        for f in files:
-            os.remove(os.path.join(directory, f))
-        
-        print(f"  Deleted {len(files)} file(s) from '{directory}'")
+    files = [f for f in os.listdir(directory) if f.startswith(prefix)]
+    
+    if not files:
+        print(f"  No files found in '{directory}' with prefix '{prefix}'")
+        return
+    
+    for f in files:
+        os.remove(os.path.join(directory, f))
+    
+    print(f"  Deleted {len(files)} file(s) from '{directory}'")
 
 
 def click(pos, delay=CLICK_DELAY):
@@ -316,7 +417,7 @@ def capture_region(region):
     # region is (left, top, right, bottom)
     print("region:" + str(region))
     left, top, right, bottom = region
-    print("left,top,right,bottom:" + str(left)+","+ str(top)+","+ str(right)+","+ str(bottom))
+    # print("left,top,right,bottom:" + str(left)+","+ str(top)+","+ str(right)+","+ str(bottom))
     # Use ImageGrab with all_screens=True — handles negative coords on multi-monitor
     screenshot = ImageGrab.grab(bbox=(left, top, right, bottom), all_screens=True)
     return screenshot
@@ -389,14 +490,40 @@ def ocr_region(region, debug=False):
 
 
 
-# new to be able to add to locked rows
-def find_and_click_lock(target_stat):
+# def find_and_click_lock(target_stat):
 
+#     global capture_count
+
+#     print(f"  Scanning rows to find '{target_stat}' and click its lock...")
+
+#     for i, region in enumerate(CURRENT_STAT_ROW_REGIONS):
+#         row_text = ocr_region(region)
+#         print(f"  Row {i+1}: '{row_text.strip()}'")
+#         if target_stat in row_text:
+#             lock_pos = lock(i)
+#             print(f"  Found '{target_stat}' in row {i+1} — clicked lock at {lock_pos}")
+#             os.makedirs("debug/captures", exist_ok=True)
+#             img = capture_region(region)
+#             img.save(f"debug/captures/capture_{capture_count:04d}.png")
+#             print(f"  [DEBUG] Saved capture_{capture_count:04d}.png")
+#             capture_count += 1
+#             return i  # ← return index instead of True
+#     print(f"  ✗ Could not find '{target_stat}' in any row")
+#     return None  # ← return None instead of False
+
+def find_and_click_lock(target_stat, excluded_rows=None):
+    """
+    Scan rows for target_stat and click its lock.
+    excluded_rows: list of row indices to skip (already locked rows).
+    """
     global capture_count
-
-    print(f"  Scanning rows to find '{target_stat}' and click its lock...")
-
+    if excluded_rows is None:
+        excluded_rows = []
+    
+    print(f"  Scanning rows to find '{target_stat}' (excluding rows {[r+1 for r in excluded_rows]})...")
     for i, region in enumerate(CURRENT_STAT_ROW_REGIONS):
+        if i in excluded_rows:
+            continue
         row_text = ocr_region(region)
         print(f"  Row {i+1}: '{row_text.strip()}'")
         if target_stat in row_text:
@@ -405,11 +532,10 @@ def find_and_click_lock(target_stat):
             os.makedirs("debug/captures", exist_ok=True)
             img = capture_region(region)
             img.save(f"debug/captures/capture_{capture_count:04d}.png")
-            print(f"  [DEBUG] Saved capture_{capture_count:04d}.png")
             capture_count += 1
-            return i  # ← return index instead of True
+            return i
     print(f"  ✗ Could not find '{target_stat}' in any row")
-    return None  # ← return None instead of False
+    return None
 
 def colours_match(c1, c2, tolerance=POPUP_COLOUR_TOLERANCE):
     """Check if two RGB colours are within tolerance of each other."""
@@ -498,7 +624,7 @@ def refine_for_orange(phase1_locked_rows,stones_used_phase1):
     print("\n=== PHASE 2: Refining for 3 orange stats ===")
     stones_used_phase2 = 0
     click(SAVE_BUTTON) # if have 3 orange already there will still be refined stats that will require a popup to remove - this is to prevent popup
-    time.sleep(0.5)
+    time.sleep(0.8)
     print(phase1_locked_rows)
     unlock_all_rows(phase1_locked_rows)
     locked_rows = list(lock_orange_rows(CURRENT_STAT_ROW_REGIONS))
@@ -522,7 +648,7 @@ def refine_for_orange(phase1_locked_rows,stones_used_phase1):
             if new_orange:
                 print(f"  New orange stats in rows: {[i+1 for i in new_orange]}")
                 click(SAVE_BUTTON)
-                time.sleep(0.5)
+                time.sleep(0.8)
                 for i in new_orange:
                     click_lock_for_row(i)
                     locked_rows.append(i)
@@ -540,7 +666,7 @@ def refine_for_orange(phase1_locked_rows,stones_used_phase1):
             if new_orange:
                 print(f"  New orange stats in rows: {[i+1 for i in new_orange]}")
                 click(SAVE_BUTTON)
-                time.sleep(0.3)
+                time.sleep(0.8)
                 for i in new_orange:
                     click_lock_for_row(i)
                     locked_rows.append(i)
@@ -555,23 +681,13 @@ def refine_for_orange(phase1_locked_rows,stones_used_phase1):
 # ------------------------------------------------------ INVENTORY NAVIGATION ZONE ---------------------------------------------------------------
 
 
-# def scroll_inventory():
-#     """Drag scroll the inventory to reveal more items."""
-#     print("  Scrolling inventory...")
-#     pyautogui.mouseDown(INVENTORY_SCROLL_START[0], INVENTORY_SCROLL_START[1])
-#     time.sleep(0.1)
-#     pyautogui.moveTo(INVENTORY_SCROLL_END[0], INVENTORY_SCROLL_END[1], duration=0.5)
-#     time.sleep(0.1)
-#     pyautogui.mouseUp()
-#     time.sleep(0.3)
-
 def scroll_inventory(target_row=None):
     """
     Drag scroll the inventory.
     target_row: if specified, scrolls to that row number. Otherwise performs a single default scroll.
     """
     print(f"  Scrolling inventory{f' to row {target_row}' if target_row else ''}...")
-
+    target_row-=1 # start at 0
     if target_row is None:
         # Default behaviour — single scroll to max
         pyautogui.mouseDown(INVENTORY_SCROLL_START[0], INVENTORY_SCROLL_START[1])
@@ -636,10 +752,10 @@ def is_gear_locked():
     print(f"  Gear lock status: '{text.strip()}' — {'LOCKED' if locked else 'not locked'}")
     return locked
 
-def get_refine_button_for_gear(gear_name):
+def get_refine_button_for_gear(gear_type):
     """Return the correct refine button position based on gear name."""
     for keyword, button_pos in GEAR_NAME_KEYWORDS.items():
-        if keyword in gear_name.lower():
+        if keyword in gear_type.lower():
             print(f"  Detected gear type '{keyword}' — using alternate refine button")
             if keyword == "bracer" and ocr_region(GEAR_NAME_REGION) == "gold bracelet":
                 return GOLD_BRACER_REFINE_BUTTON
@@ -669,6 +785,7 @@ def go_back_to_inventory():
     """Click back button to return to inventory view."""
     print("  Going back to inventory...")
     click(BACK_BUTTON)
+    time.sleep(0.1)
     click(PACK_BUTTON)
     time.sleep(0.5)
 
@@ -678,7 +795,7 @@ def popup_visible():
     """Check if popup is present by reading a specific pixel colour."""
     actual = pyautogui.pixel(POPUP_PIXEL_POS[0], POPUP_PIXEL_POS[1])
     visible = colours_match(actual, POPUP_PIXEL_COLOUR)
-    print(f"  [DEBUG] Popup pixel colour: {actual} — {'POPUP DETECTED' if visible else 'no popup'}")
+    # print(f"  [DEBUG] Popup pixel colour: {actual} — {'POPUP DETECTED' if visible else 'no popup'}")
     return visible
 
 def wait_for_popup(timeout=0.05):
@@ -686,7 +803,7 @@ def wait_for_popup(timeout=0.05):
     Block until the popup pixel appears or timeout is reached.
     Returns True if popup appeared, False if timed out.
     """
-    print("timeout: "+str(timeout))
+    # print("timeout: "+str(timeout))
     time.sleep(timeout)
     if popup_visible():
         return True
@@ -801,6 +918,99 @@ def scan_inventory_refine_stones(start_row=10, end_row=25):
 
     return results
 
+# ----------------------------------------------------- LUCK ZONE ------------------------------------------------------------
+
+def get_unlocked_rows(locked_rows):
+    """Return list of row indices that are not locked."""
+    return [i for i in range(len(CURRENT_STAT_ROW_REGIONS)) if i not in locked_rows]
+
+
+def extract_luck_value(text):
+    """Extract the number after 'luck' e.g. 'luck: 3' returns 3."""
+    import re
+    match = re.search(r'luck[:\s]+(\d+)', text.lower())
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def get_lowest_luck_row(locked_rows):
+    """Return index + value of lowest locked luck stat."""
+    min_val = None
+    min_row = None
+    for row_idx in locked_rows:
+        row_text = ocr_region(CURRENT_STAT_ROW_REGIONS[row_idx])
+        val = extract_luck_value(row_text)
+        if val is not None:
+            if min_val is None or val < min_val:
+                min_val = val
+                min_row = row_idx
+    return min_row, min_val
+
+def get_total_luck_in_rows(row_indices, use_refined=False):
+    """Sum luck values across given row indices."""
+    regions = REFINED_STAT_ROW_REGIONS if use_refined else CURRENT_STAT_ROW_REGIONS
+    total = 0
+    for i in row_indices:
+        row_text = ocr_region(regions[i])
+        val = extract_luck_value(row_text)
+        if val is not None:
+            total += val
+    return total
+
+def handle_luck_popup(locked_rows, luck, regions):
+    """
+    Handle luck stat logic for luck gear.
+    When fewer than LOCKABLE_STATS are locked: lock any luck == 3.
+    When LOCKABLE_STATS are locked: compare total luck in unlocked refined rows
+    vs unlocked current rows — save only if refined is better.
+    Returns (locked_rows, luck, action_taken).
+    """
+    unlocked_rows = get_unlocked_rows(locked_rows)
+
+    if len(locked_rows) < LOCKABLE_STATS:
+        # Still filling lock slots — find luck == 3 in refined rows
+        for i, region in enumerate(regions):
+            if i in locked_rows:
+                continue
+            row_text = ocr_region(region)
+            luck_val = extract_luck_value(row_text)
+            if luck_val is None:
+                continue
+            print(f"  Luck value found in row {i+1}: {luck_val}")
+            if luck_val == 3:
+                click(SAVE_BUTTON)
+                time.sleep(0.8)
+                found = find_and_click_lock("luck", excluded_rows=locked_rows)
+                if found is not None:
+                    locked_rows.append(found)
+                    luck += luck_val
+                    print(f"  → Luck {luck_val} locked! total luck={luck} ({len(locked_rows)}/{LOCKABLE_STATS})")
+                    return locked_rows, luck, True # edit encase 2 l
+            else:
+                print(f"  Luck {luck_val} is not 3 — rerolling")
+                return locked_rows, luck, False
+    else:
+        # All lock slots filled — compare unlocked rows
+        # Get total luck in unlocked refined rows (new roll)
+        refined_luck = get_total_luck_in_rows(unlocked_rows, use_refined=True)
+        # Get total luck in unlocked current rows (existing)
+        current_luck = get_total_luck_in_rows(unlocked_rows, use_refined=False)
+
+        print(f"  Unlocked rows refined luck total: {refined_luck} vs current: {current_luck}")
+
+        if refined_luck > current_luck:
+            print(f"  New roll is better ({refined_luck} > {current_luck}) — saving!")
+            click(SAVE_BUTTON)
+            time.sleep(0.8)
+            luck = luck + refined_luck - current_luck  # adjust total
+            print(f"  → Total luck now: {luck}")
+            return locked_rows, luck, True
+        else:
+            print(f"  New roll not better — rerolling")
+            return locked_rows, luck, False
+
+    return locked_rows, luck, False
 # ─────────────────────────────────────────────
 # CALIBRATION MODE
 # ─────────────────────────────────────────────
@@ -967,14 +1177,12 @@ def run_automation(starting_row=INVENTORY_SCROLL_MAX_SINGLE):
         # Select the gear item
         select_gear(current_slot)
         time.sleep(0.3)
-        # Click the refine button to enter refine view
-        # TODO MISSES FOR BOOTS - rwead gear name then use different click position, if no gear found click in a specific area to remove popup and move to next item
 
         # Read gear name to determine correct refine button position
-        gear_name = ocr_region(GEAR_INFO_REGION, debug=True)
-        print(f"  Gear name: '{gear_name.strip()}'")
+        gear_type = ocr_region(GEAR_INFO_REGION, debug=True)
+        print(f"  Gear name: '{gear_type.strip()}'")
 
-        if not gear_name.strip():
+        if not gear_type.strip():
             print("  No gear found in slot — dismissing any popup and moving to next slot...")
             click(POPUP_DISMISS_BUTTON)
             time.sleep(0.3)
@@ -982,7 +1190,7 @@ def run_automation(starting_row=INVENTORY_SCROLL_MAX_SINGLE):
             continue
 
         # Get correct refine button for this gear type
-        refine_button = get_refine_button_for_gear(gear_name)
+        refine_button = get_refine_button_for_gear(gear_type)
         if refine_button is None:
             click(POPUP_DISMISS_BUTTON)
             time.sleep(0.3)
@@ -991,24 +1199,6 @@ def run_automation(starting_row=INVENTORY_SCROLL_MAX_SINGLE):
         print("  Opening refine view...")
         click(refine_button)
         time.sleep(2) # refine stones need to load
-
-
-        # Read refine stone counts
-        # try:
-        #     refine_stones_left = int(re.sub(r'[^0-9]', '',ocr_region(REFINE_STONES_LEFT_REGION,debug=True)))
-        # except ValueError: # also catches when refine button was missed for whtever reason - weird gear item
-        #     print("  ⚠ Could not read refine stones left — dismissing and skipping")
-        #     click(POPUP_DISMISS_BUTTON)
-        #     time.sleep(0.3)
-        #     current_slot += 1
-        #     continue
-
-        # try:
-        #     refine_stone_region_result = ocr_region(REFINE_STONES_USED_REGION,debug=True)
-        #     refine_stones_used_before_refine = int(re.sub(r'[^0-9]', '',refine_stone_region_result))
-        # except ValueError:
-        #     print("  ⚠ Could not read refine stones used — defaulting to 0")
-        #     refine_stones_used_before_refine = 0
 
         try:
             raw = ocr_region(REFINE_STONES_LEFT_REGION, debug=True)
@@ -1032,11 +1222,11 @@ def run_automation(starting_row=INVENTORY_SCROLL_MAX_SINGLE):
             print("  ⚠ Could not read refine stones used — defaulting to 0")
             refine_stones_used_before_refine = 0
 
-        if refine_stones_left > MAX_STONES_PER_GEAR: # refine_stones_used_before_refine == 0 and
+        if refine_stones_left > MAX_STONES_PER_NON_LUCK_GEAR:
             # Run the refine loop — returns whether phase 2 was needed
-            successful_refine = refine_loop(refine_stones_used_before_refine)
+            successful_refine = refine_loop(gear_type,refine_stones_left,refine_stones_used_before_refine)
             items_processed += 1
-            processed_items.append((gear_name.strip(),refine_stones_used_before_refine,starting_row+(current_slot // GEAR_SLOT_COLS),current_slot % GEAR_SLOT_COLS,successful_refine))
+            processed_items.append((gear_type.strip(),refine_stones_used_before_refine,starting_row+(current_slot // GEAR_SLOT_COLS),current_slot % GEAR_SLOT_COLS,successful_refine))
             print(f"\n  ✓ Gear {items_processed} refined successfully — keeping")
         else:
             print(f"\n  Not enough refine stones")
@@ -1070,7 +1260,7 @@ def run_automation(starting_row=INVENTORY_SCROLL_MAX_SINGLE):
 
 
 
-        # TODO
+        # TODO not needed right now as not enough stones to need to see more than 28 items
         # Scroll inventory every N items to reveal new gear
         # if current_slot > 0 and current_slot % ITEMS_PER_SCROLL == 0:
         #     print("  Scrolling inventory to reveal more items...")
@@ -1111,8 +1301,8 @@ def evaluate_stat(text, stat_list, locked_all_skills=False):
         if good in text:
             print(f"  ✓ Found (contains '{good}'): {text.strip()}")
             matched.append(good)
-    if not matched:
-        print(f"  ? Unknown stat, rejecting: {text.strip()}")
+    # if not matched:
+    #     print(f"  ? Unknown stat, rejecting: {text.strip()}")
     return matched
 
 def extract_first_number_after_colon(text):
@@ -1126,7 +1316,8 @@ def extract_first_number_after_colon(text):
         return int(match.group(0))
     return None
 
-def refine_loop(stones_used = 0):
+# TODO check coins as well even though rarely run out
+def refine_loop(gear_type,refine_stones_left_before_refine,stones_used = 0): 
     """
     True if refining was successful, False if item needs recycling
     """
@@ -1134,154 +1325,190 @@ def refine_loop(stones_used = 0):
     locked_desired_count = 0
     locked_rows = []
     phase1_success = False
-    lock_not_found = False
+    # lock_not_found = False
+    looking_for_luck = False
+    stones_left = refine_stones_left_before_refine
 
     looking_for_max_win = False
 
+    # if "necklace" in gear_type or "weapon" in gear_type:
+    if ("necklace" or "weapon") in gear_type: # TODO untested for weapon condition may not work
+        looking_for_luck = True
+        stones_left = refine_stones_left_before_refine
+    luck = 0
+
     print("=== Gear Refine Bot Starting ===")
-    print(f"Max stones per gear : {MAX_STONES_PER_GEAR}")
+    print(f"Max stones per gear : {MAX_STONES_PER_NON_LUCK_GEAR}")
     print(f"Refine stone cost   : {get_refine_cost(len(locked_rows))}")
     print(f"Desired stats       : {DESIRED_STATS}")
     print("Press F9 at any time to stop.\n")
 
 
-
-    # ── Pre-check: scan current stat rows before any refining ──
+    # ── Pre-check ──
     print("  Pre-checking current stats before refining...")
-    for i, region in enumerate(CURRENT_STAT_ROW_REGIONS):
-        row_text = ocr_region(region)
-        print(f"  Current row {i+1}: '{row_text.strip()}'")
+    if looking_for_luck:
+        for i, region in enumerate(CURRENT_STAT_ROW_REGIONS):
+            row_text = ocr_region(region)
+            luck_val = extract_luck_value(row_text)
+            if luck_val is not None and luck_val == 3 and len(locked_rows) < LOCKABLE_STATS:
+                found = find_and_click_lock("luck", excluded_rows=locked_rows)
+                if found is not None:
+                    locked_rows.append(found)
+                    luck += luck_val
+                    locked_desired_count += 1
+                    print(f"  → Pre-check: luck {luck_val} locked ({locked_desired_count}/{LOCKABLE_STATS})")
 
-        if not locked_all_skills:
-            if evaluate_stat(row_text, DESIRED_STATS):
+        if locked_desired_count >= LOCKABLE_STATS:
+            # Check unlocked rows for remaining luck
+            unlocked_luck = get_total_luck_in_rows(get_unlocked_rows(locked_rows))
+            luck += unlocked_luck
+            print(f"  → Pre-check: {LOCKABLE_STATS} locks filled, total luck including unlocked={luck}")
+            if luck >= 10:
+                print(f"  → Pre-check: luck target met — complete!")
+                return True
+            print(f"  → Pre-check: luck target not met ({luck}/10) — continuing to refine unlocked rows")
+    else:
+        for i, region in enumerate(CURRENT_STAT_ROW_REGIONS):
+            row_text = ocr_region(region)
+            if not locked_all_skills and evaluate_stat(row_text, DESIRED_STATS):
                 found = find_and_click_lock("all skills")
                 if found is not None:
                     locked_rows.append(found)
                     locked_all_skills = True
                     print("  → Pre-check: all skills found and locked!")
 
-    if locked_all_skills:
-        # Check remaining rows for desired after-lock stats
-        print("  Pre-check: scanning for desired after-lock stats...")
-        for i, region in enumerate(CURRENT_STAT_ROW_REGIONS):
-            if i in locked_rows:
-                continue
-            row_text = ocr_region(region)
-            matched_after = evaluate_stat(row_text, DESIRED_STATS_AFTER_LOCK)
-            if matched_after:
-                found = find_and_click_lock(matched_after[0])
-                if found is not None:
-                    locked_rows.append(found)
-                    locked_desired_count += 1
-                    print(f"  → Pre-check: row {i+1} '{matched_after}' locked!")
-
-        if locked_desired_count >= DESIRED_STATS_NEEDED:
-            print(f"  → Pre-check: already has all desired stats — phase 1 complete!")
-            return True
-        
-        if locked_desired_count > 0:
-            print(f"  → Pre-check: already has all skills and one skill, backup gear - skipping")
-            return True
-
-
-
-    while stones_used < MAX_STONES_PER_GEAR - ORANGE_BUFFER:
-        emergency_stop_check()
-
-        if stones_used > ALL_SKILLS_LIMIT and not locked_all_skills:
-            print(f"All skills not found after {ALL_SKILLS_LIMIT}, moving to phase 2")
-            break
-
-        print(f"[Stone {stones_used + get_refine_cost(len(locked_rows))}/{MAX_STONES_PER_GEAR}] Clicking Refine...")
-            
-        click(REFINE_BUTTON,delay=REFINE_DELAY)
-        emergency_stop_check()
-
-        if not wait_for_popup(timeout=0.001):
-            print("  No popup appeared, continuing...")
-            stones_used += get_refine_cost(len(locked_rows))
-            continue
-
-        # Popup detected — cancel it so we can read the refined stat rows
-        click(CANCEL_BUTTON)
-        time.sleep(0.2)
-
-        # ── Scan refined stat rows ──
-        if not locked_all_skills:
-            # Look for all skills in refined rows
-            for i, region in enumerate(REFINED_STAT_ROW_REGIONS):
-                row_text = ocr_region(region)
-                print(f"  Refined row {i+1}: '{row_text.strip()}'")
-                if evaluate_stat(row_text, DESIRED_STATS):
-                    click(SAVE_BUTTON)  # save first so all skills moves to current stat rows
-                    time.sleep(0.3)     # wait for save
-                    found = find_and_click_lock("all skills")
-                    if found is not None:
-                        locked_rows.append(found)
-                        locked_all_skills = True
-                        looking_for_max_win = True
-                        print("  → All skills locked!")
-                        break
-                    else:
-                        lock_not_found = True
-                        print("  ⚠ Lock not found — stopping")
-                        break
-
-            if lock_not_found:
-                break
-
-            if not locked_all_skills:
-                # Checkeed if All skills was hidden behind another rare stat popup but wasnt
-                print("  All skills not found in refined rows, rerolling...")
-                click(REFINE_BUTTON) # make popup reappear
-                click(CONFIRM_BUTTON) # reroll from popup window
-                stones_used += get_refine_cost(len(locked_rows))
-                continue
-
         if locked_all_skills:
-            stat_row_region = []
-            
-            if looking_for_max_win: #save would have been clicked so need to check current rows, otherwise check refined rows
-                stat_row_region = CURRENT_STAT_ROW_REGIONS
-                looking_for_max_win = False
-            else:
-                stat_row_region = REFINED_STAT_ROW_REGIONS
-
-            # Scan rows for desired after-lock stats
-            any_after_lock_found = False
-            for i, region in enumerate(stat_row_region):
+            for i, region in enumerate(CURRENT_STAT_ROW_REGIONS):
                 if i in locked_rows:
                     continue
                 row_text = ocr_region(region)
                 matched_after = evaluate_stat(row_text, DESIRED_STATS_AFTER_LOCK)
                 if matched_after:
-                    click(SAVE_BUTTON)
                     found = find_and_click_lock(matched_after[0])
                     if found is not None:
                         locked_rows.append(found)
                         locked_desired_count += 1
-                        any_after_lock_found = True
-                        print(f"  → Row {i+1} '{matched_after}' locked!")
-            if not any_after_lock_found:
-                # No desired stats found — bad rare stat, reroll
-                print("  No desired after-lock stats found — rerolling...")
+                        print(f"  → Pre-check: row {i+1} '{matched_after}' locked!")
+            if locked_desired_count >= DESIRED_STATS_NEEDED:
+                print(f"  → Pre-check: already has all desired stats — phase 1 complete!")
+                return True
+            if locked_desired_count > 0:
+                print(f"  → Pre-check: already has all skills and one skill, backup gear - skipping")
+                return True
+        
+    
+
+    stone_budget = MAX_STONES_PER_LUCK_GEAR if looking_for_luck else MAX_STONES_PER_NON_LUCK_GEAR
+
+    # ── Main refine loop ──
+    while (stones_used < stone_budget - ORANGE_BUFFER) and (not looking_for_luck or stones_left > 50):  
+        emergency_stop_check()
+
+        if not looking_for_luck and stones_used > ALL_SKILLS_LIMIT and not locked_all_skills:
+            print(f"All skills not found after {ALL_SKILLS_LIMIT}, moving to phase 2")
+            print(f"Stones Used: {stones_used}")
+            break
+
+        # print(f"[Stone {stones_used + get_refine_cost(len(locked_rows))}/{stone_budget}] Clicking Refine...")
+
+        click(REFINE_BUTTON, delay=REFINE_DELAY)
+        emergency_stop_check()
+
+        if not wait_for_popup(timeout=0.001):
+            # print("  No popup appeared, continuing...")
+            stones_used += get_refine_cost(len(locked_rows))
+            stones_left -= get_refine_cost(len(locked_rows))
+            continue
+
+        click(CANCEL_BUTTON)
+        time.sleep(0.2)
+
+        if looking_for_luck:
+            locked_rows, luck, action_taken = handle_luck_popup(locked_rows, luck, REFINED_STAT_ROW_REGIONS)
+            if not action_taken:
                 click(REFINE_BUTTON)
                 time.sleep(0.3)
                 click(CONFIRM_BUTTON)
                 stones_used += get_refine_cost(len(locked_rows))
-            if locked_desired_count >= DESIRED_STATS_NEEDED:
-                phase1_success = True
-                print(f"  → Phase 1 complete! All skills + {locked_desired_count} desired stat(s)!")
-                break
+                stones_left -= get_refine_cost(len(locked_rows))
+            else:
+                if luck >= 10:
+                    phase1_success = True
+                    print(f"  → Luck phase complete! Total luck: {luck}")
+                    break
+        else:
+            # ── Standard gear logic ──
+            if not locked_all_skills:
+                for i, region in enumerate(REFINED_STAT_ROW_REGIONS):
+                    row_text = ocr_region(region)
+                    print(f"  Refined row {i+1}: '{row_text.strip()}'")
+                    if evaluate_stat(row_text, DESIRED_STATS):
+                        click(SAVE_BUTTON)
+                        time.sleep(0.8)
+                        found = find_and_click_lock("all skills")
+                        if found is not None:
+                            locked_rows.append(found)
+                            locked_all_skills = True
+                            looking_for_max_win = True
+                            print("  → All skills locked!")
+                            break
+                        else:
+                            # lock_not_found = True
+                            print("  ⚠ Lock not found — stopping")
+                            return False
 
-        stones_used += get_refine_cost(len(locked_rows))
+                if not locked_all_skills:
+                    print("  All skills not found in refined rows, rerolling...")
+                    click(REFINE_BUTTON)
+                    click(CONFIRM_BUTTON)
+                    stones_used += get_refine_cost(len(locked_rows))
+                    stones_left -= get_refine_cost(len(locked_rows))
+                    continue
 
-    if not phase1_success and not lock_not_found:
+            if locked_all_skills:
+                stat_row_region = CURRENT_STAT_ROW_REGIONS if looking_for_max_win else REFINED_STAT_ROW_REGIONS
+                looking_for_max_win = False
+
+                any_after_lock_found = False
+                for i, region in enumerate(stat_row_region):
+                    if i in locked_rows:
+                        continue
+                    row_text = ocr_region(region)
+                    matched_after = evaluate_stat(row_text, DESIRED_STATS_AFTER_LOCK)
+                    if matched_after:
+                        click(SAVE_BUTTON)
+                        time.sleep(0.8)
+                        found = find_and_click_lock(matched_after[0])
+                        if found is not None:
+                            locked_rows.append(found)
+                            locked_desired_count += 1
+                            any_after_lock_found = True
+                            print(f"  → Row {i+1} '{matched_after}' locked!")
+                        else:
+                            print(f"  ⚠ Found desired stat {matched_after} in row {i+1}, but lock was not found — exiting item")
+                            return False
+
+                if not any_after_lock_found:
+                    print("  No desired after-lock stats found — rerolling...")
+                    click(REFINE_BUTTON)
+                    time.sleep(0.3)
+                    click(CONFIRM_BUTTON)
+                    stones_used += get_refine_cost(len(locked_rows))
+                    stones_left -= get_refine_cost(len(locked_rows))
+
+                if locked_desired_count >= DESIRED_STATS_NEEDED:
+                    phase1_success = True
+                    print(f"  → Phase 1 complete! All skills + {locked_desired_count} desired stat(s)!")
+                    break
+
+        # stones_used += get_refine_cost(len(locked_rows))
+
+    if not phase1_success: #  and not lock_not_found
         print("\n⚠ Phase 1 incomplete — going to Phase 2 for 3 orange stats")
-        refine_for_orange(locked_rows,stones_used)
+        refine_for_orange(locked_rows, stones_used)
         return False
 
-    print(f"\n✅ Used {stones_used} stones. Time to recycle and start over!")
+    print(f"\n✅ Used {stones_used} stones.")
     return True
 
 
@@ -1311,7 +1538,6 @@ if __name__ == "__main__":
     # print(f"Colour now: {pyautogui.pixel(x, y)}")
     # input("Now trigger the popup in BlueStacks, then press Enter...")
     # print(f"Colour with popup: {pyautogui.pixel(x, y)}")
-
     start_time = time.time()
     clear_debug_files("debug/orange")
 
@@ -1325,7 +1551,7 @@ if __name__ == "__main__":
         starting_row = int(input())
         print("===================================Enter finishing row===================================")
         finishing_row = int(input())
-        scan_inventory_refine_stones(starting_row-1,finishing_row-1)
+        scan_inventory_refine_stones(starting_row-1, finishing_row-1)
     elif TEST_OCR_MODE:
         test_ocr_from_file(TEST_OCR_IMAGE)
     elif CALIBRATION_MODE:
@@ -1335,7 +1561,7 @@ if __name__ == "__main__":
     else:
         print("===================================Enter starting row===================================")
         starting_row = int(input())
-        run_automation(starting_row-1) # starting row index starts at 0 - determines what gear to start with as inv is in gear order
+        run_automation(starting_row) # starting row index starts at 0 - determines what gear to start with as inv is in gear order
 
 
     elapsed = time.time() - start_time

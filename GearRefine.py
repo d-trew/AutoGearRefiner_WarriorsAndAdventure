@@ -155,12 +155,13 @@ LOCK_BUTTON_POSITIONS_VISUAL_ONLY = [
 # INVENTORY_SCROLL_END   =(-1730, 365)  # calibrate 10th
 
 #  NEW
-INVENTORY_SCROLL_START = (-1727, 779)
-INVENTORY_SCROLL_END = (-1727, 293)
-INVENTORY_SCROLL_MAX_SINGLE = 10 # based on inv scroll but need to figure out how it works
-
-# INVENTORY_SCROLL_START = (-1731, 768)  # calibrate goes to 8th row
-# INVENTORY_SCROLL_END   =(-1730, 465)  # calibrate
+INVENTORY_SCROLL_START = (-1725, 776)
+INVENTORY_SCROLL_END = (-1725, 335) # 10th row
+SCROLL_PER_ROW = 49.1
+INVENTORY_SCROLL_MAX_SINGLE = 10 # how many rows are moved during the inventory scroll values
+# x=-1725, y=335) 10th row SPR = 49
+# (x=-1725, y=284) 11th SPR = 49.2
+# (x=-1725, y=235) 12th SPR = 49.18
 
 # --------------- gear detail view ---------
 # RING_RECYCLE_BUTTON = (-1600, 620)  # calibrate
@@ -178,12 +179,12 @@ WEAPON_REFINE_BUTTON =(-1600,642)
 
 GEAR_NAME_REGION = (-1700, 450, -1560, 480)
 
-FFAWNSKIN_BOOTS_REFINE_BUTTON = (-1601, 701) # FF to protect False intelisense
+FFAWNSKIN_BOOTS_REFINE_BUTTON = (-1601, 701) # FF to protect False intellisense
 GOLD_BRACER_REFINE_BUTTON = (-1602, 702)
 # -----------------------------
 
 
-GEAR_INFO_REGION = (-1650, 520, -1500, 700)
+GEAR_INFO_REGION = (-1650, 520, -1500, 720)
 
 POPUP_DISMISS_BUTTON = (-1901, 704)
 
@@ -363,6 +364,84 @@ def patched_print(*args, **kwargs):
 # Monkey-patch print
 print = patched_print
 
+
+# ─────────────────────────────────────────────
+# MOVE GAME WINDOW
+# ─────────────────────────────────────────────
+TARGET_WINDOW_X = -2140
+TARGET_WINDOW_Y = 199
+TARGET_WINDOW_W = 597
+TARGET_WINDOW_H = 679
+WINDOW_TOLERANCE = 1
+import psutil
+
+def move_game_window():
+    """Move and resize BlueStacks window to target position and size. Kill ads"""
+
+    # kill ads
+    for proc in psutil.process_iter(['pid','name','ppid']):
+        try:
+            if proc.info['name'] == 'BlueStacksAppplayerWeb.exe':
+                print(f"Killed:  pid={proc.info['pid']} | name='{proc.info['name']}' | ppid={proc.info['ppid']}")
+                proc.kill()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    
+    bluestacks_hwnd = win32gui.FindWindow(None, "BlueStacks App Player")
+    if bluestacks_hwnd == 0:
+        print("  ⚠ Could not find BlueStacks window")
+        return False
+
+    rect = win32gui.GetWindowRect(bluestacks_hwnd)
+    current_x, current_y = rect[0], rect[1]
+    current_w = rect[2] - rect[0]
+    current_h = rect[3] - rect[1]
+    print(f"  Window currently at: ({current_x}, {current_y}) size: {current_w}x{current_h}")
+
+    position_ok = (abs(current_x - TARGET_WINDOW_X) <= WINDOW_TOLERANCE and
+                   abs(current_y - TARGET_WINDOW_Y) <= WINDOW_TOLERANCE)
+    size_ok = (abs(current_w - TARGET_WINDOW_W) <= WINDOW_TOLERANCE and
+               abs(current_h - TARGET_WINDOW_H) <= WINDOW_TOLERANCE)
+
+    if position_ok and size_ok:
+        print("  Window already in correct position and size")
+        return True
+
+    if not position_ok:
+        # Title bar is at the actual window coordinates (negative on second monitor)
+        title_bar_x = current_x + 300  # 200px from left edge of window
+        title_bar_y = current_y + 10   # 10px from top of window
+        drag_to_x = TARGET_WINDOW_X + 298 # was 1 pixel off for some reason even before changing y target
+        drag_to_y = TARGET_WINDOW_Y + 8 # go up a bit then the window snaps to max height
+
+        print(f"  Dragging title bar from ({title_bar_x}, {title_bar_y}) to ({drag_to_x}, {drag_to_y})")
+        pyautogui.moveTo(title_bar_x, title_bar_y)
+        time.sleep(0.2)
+        pyautogui.mouseDown()
+        time.sleep(0.3)
+        pyautogui.moveTo(drag_to_x, drag_to_y, duration=0.5)
+        time.sleep(0.2)
+        pyautogui.mouseUp()
+        time.sleep(0.3)
+    else:
+        print("  Window already in correct position")
+
+    if not size_ok:
+        print(f"  Resizing from {current_w}x{current_h} to {TARGET_WINDOW_W}x{TARGET_WINDOW_H}")
+        win32gui.SetWindowPos(
+            bluestacks_hwnd,
+            win32con.HWND_TOP,
+            TARGET_WINDOW_X, TARGET_WINDOW_Y,
+            TARGET_WINDOW_W, TARGET_WINDOW_H,
+            win32con.SWP_SHOWWINDOW
+        )
+        time.sleep(0.3)
+    else:
+        print("  Window already correct size")
+
+    rect = win32gui.GetWindowRect(bluestacks_hwnd)
+    print(f"  Window now at: ({rect[0]}, {rect[1]}) size: {rect[2]-rect[0]}x{rect[3]-rect[1]}")
+    return True
 # ─────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────
@@ -675,54 +754,102 @@ def refine_for_orange(phase1_locked_rows,stones_used_phase1):
     if len(locked_rows) >= 3:
         print(f"\n✅ Phase 2 complete — 3 orange stats locked! TOTAL REFINE STONES ON THIS GEAR = {stones_used_phase1+stones_used_phase2}")
     else:
-        print(f"\n⚠ Ran out of stones in Phase 2 with {len(locked_rows)} orange stats locked.")
+        print(f"\n⚠ Ran out of stones in Phase 2 with {len(locked_rows)} orange stats locked. didn't find 3 orange or a problem occurred")
 
 
 # ------------------------------------------------------ INVENTORY NAVIGATION ZONE ---------------------------------------------------------------
 
+# OLD WAY THAT SOMEHOW WORKED BUT WAS A FEW PIXELS OFF AT LARGER ROWS - full scroll goes farther than needed but elif somehow corrects it
+# def scroll_inventory(target_row=None):
+#     """
+#     Drag scroll the inventory.
+#     target_row: if specified, scrolls to that row number. Otherwise performs a single default scroll.
+#     """
+#     print(f"  Scrolling inventory{f' to row {target_row}' if target_row else ''}...")
+#     target_row-=1 # start at 0
+#     if target_row is None:
+#         # Default behaviour — single scroll to max
+#         pyautogui.mouseDown(INVENTORY_SCROLL_START[0], INVENTORY_SCROLL_START[1])
+#         time.sleep(0.2)
+#         pyautogui.moveTo(INVENTORY_SCROLL_END[0], INVENTORY_SCROLL_END[1], duration=0.5)
+#         time.sleep(0.2)
+#         pyautogui.mouseUp()
+#         time.sleep(0.4)
+#     elif target_row <= INVENTORY_SCROLL_MAX_SINGLE:
+#         end_y = INVENTORY_SCROLL_END[1]
+#         start_y = INVENTORY_SCROLL_START[1]
+#         # 50 seems to be the scroll difference per row even  (scroll start - scroll end) / how many rows that moves
+#         # taking away from start_y means the mouse end point lowers - moving less distance (backwards as on second monitor)
+#         scroll_end_y = int(start_y - ((target_row) * 60)) 
+#         pyautogui.mouseDown(INVENTORY_SCROLL_START[0], INVENTORY_SCROLL_START[1])
+#         time.sleep(0.2)
+#         pyautogui.moveTo(INVENTORY_SCROLL_END[0], scroll_end_y, duration=0.5)
+#         time.sleep(0.2)
+#         pyautogui.mouseUp()
+#         time.sleep(0.4)
+#     else:
+#         # Multiple scrolls needed
+#         scrolls_needed = target_row // INVENTORY_SCROLL_MAX_SINGLE
+#         remainder = target_row % INVENTORY_SCROLL_MAX_SINGLE
+#         print(f"  Requires {scrolls_needed} full scroll(s) + remainder {remainder}")
+#         for s in range(scrolls_needed):
+#             print(f"  Full scroll {s+1}/{scrolls_needed}...")
+#             pyautogui.mouseDown(INVENTORY_SCROLL_START[0], INVENTORY_SCROLL_START[1])
+#             time.sleep(0.2)
+#             pyautogui.moveTo(INVENTORY_SCROLL_END[0], INVENTORY_SCROLL_END[1], duration=0.5)
+#             time.sleep(0.2)
+#             pyautogui.mouseUp()
+#             time.sleep(0.4)
+#         if remainder > 0:
+#             scroll_inventory(remainder)
 
 def scroll_inventory(target_row=None):
-    """
-    Drag scroll the inventory.
-    target_row: if specified, scrolls to that row number. Otherwise performs a single default scroll.
-    """
     print(f"  Scrolling inventory{f' to row {target_row}' if target_row else ''}...")
-    target_row-=1 # start at 0
+
     if target_row is None:
-        # Default behaviour — single scroll to max
+        # Default — single full scroll
         pyautogui.mouseDown(INVENTORY_SCROLL_START[0], INVENTORY_SCROLL_START[1])
-        time.sleep(0.1)
+        time.sleep(0.2)
         pyautogui.moveTo(INVENTORY_SCROLL_END[0], INVENTORY_SCROLL_END[1], duration=0.5)
-        time.sleep(0.1)
+        time.sleep(0.2)
         pyautogui.mouseUp()
-        time.sleep(0.3)
-    elif target_row <= INVENTORY_SCROLL_MAX_SINGLE:
-        end_y = INVENTORY_SCROLL_END[1]
-        start_y = INVENTORY_SCROLL_START[1]
-        # 50 seems to be the scroll difference per row even  (scroll start - scroll end) / how many rows that moves
+        time.sleep(0.4)
+        return
+
+    target_row -= 1  # convert to 0-indexed after None check
+
+    if target_row <= 0:
+        return  # nothing to scroll
+
+    if target_row <= INVENTORY_SCROLL_MAX_SINGLE:
+        # Single partial scroll
         # taking away from start_y means the mouse end point lowers - moving less distance (backwards as on second monitor)
-        scroll_end_y = int(start_y - ((target_row) * 50)) 
+        # 49.2 appears to be mouse movement per row of inv
+        scroll_end_y = int(INVENTORY_SCROLL_START[1] - (target_row * SCROLL_PER_ROW))
         pyautogui.mouseDown(INVENTORY_SCROLL_START[0], INVENTORY_SCROLL_START[1])
-        time.sleep(0.1)
+        time.sleep(0.2)
         pyautogui.moveTo(INVENTORY_SCROLL_END[0], scroll_end_y, duration=0.5)
-        time.sleep(0.1)
+        time.sleep(0.2)
         pyautogui.mouseUp()
-        time.sleep(0.3)
+        time.sleep(0.4)
     else:
-        # Multiple scrolls needed
+        # Multiple scrolls — each full scroll uses same formula at max rows
         scrolls_needed = target_row // INVENTORY_SCROLL_MAX_SINGLE
         remainder = target_row % INVENTORY_SCROLL_MAX_SINGLE
+        full_scroll_end_y = int(INVENTORY_SCROLL_START[1] - (INVENTORY_SCROLL_MAX_SINGLE * SCROLL_PER_ROW))
+
         print(f"  Requires {scrolls_needed} full scroll(s) + remainder {remainder}")
         for s in range(scrolls_needed):
             print(f"  Full scroll {s+1}/{scrolls_needed}...")
             pyautogui.mouseDown(INVENTORY_SCROLL_START[0], INVENTORY_SCROLL_START[1])
-            time.sleep(0.1)
-            pyautogui.moveTo(INVENTORY_SCROLL_END[0], INVENTORY_SCROLL_END[1], duration=0.5)
-            time.sleep(0.1)
+            time.sleep(0.2)
+            pyautogui.moveTo(INVENTORY_SCROLL_END[0], full_scroll_end_y, duration=0.5)
+            time.sleep(0.2)
             pyautogui.mouseUp()
-            time.sleep(0.3)
+            time.sleep(0.4)
+
         if remainder > 0:
-            scroll_inventory(remainder)
+            scroll_inventory(remainder + 1)  # +1 because recursive call does -1
 
 def get_gear_slot_pos(slot_index):
     """
@@ -1042,7 +1169,7 @@ def calibration_mode():
     results = {}
     for label in positions:
         print(f"Hover over: {label}")
-        time.sleep(10)
+        time.sleep(3)
         pos = pyautogui.position()
         results[label] = pos
         print(f"  → {pos}\n")
@@ -1162,7 +1289,8 @@ def run_automation(starting_row=INVENTORY_SCROLL_MAX_SINGLE):
     print(f"Processing up to {MAX_GEAR_ITEMS} gear items")
     processed_items = []
     scroll_inventory(starting_row)
-
+    starting_gear = True
+    starting_stones = 0
 
     current_slot = 0
     items_processed = 0
@@ -1206,6 +1334,12 @@ def run_automation(starting_row=INVENTORY_SCROLL_MAX_SINGLE):
             if refine_stones_left is None or raw[:6] != "refine": # check that raw text starts with refine if not something went wrong
                 raise ValueError(f"No number found in: '{raw}'")
             print(f"  Refine stones left: {refine_stones_left}")
+
+
+
+            if starting_gear == True:
+                starting_stones = refine_stones_left
+                starting_gear = False
         except ValueError as e:
             # print("Trying alternate refine button") CBA
             print(f"  ⚠ Could not read refine stones left ({e}) — skipping")
@@ -1289,6 +1423,9 @@ def run_automation(starting_row=INVENTORY_SCROLL_MAX_SINGLE):
               f"{stones:<{stones_w}} {row:<{row_w}} {col:<{col_w}} {success_str}")
 
     print(f"  {'─' * len(header)}")
+
+    print("Starting Stones = "+ str(starting_stones))
+    print("Ending Stones = "+ str(refine_stones_left))
 
 
 def evaluate_stat(text, stat_list, locked_all_skills=False):
@@ -1538,20 +1675,26 @@ if __name__ == "__main__":
     # print(f"Colour now: {pyautogui.pixel(x, y)}")
     # input("Now trigger the popup in BlueStacks, then press Enter...")
     # print(f"Colour with popup: {pyautogui.pixel(x, y)}")
+
+
+
+
     start_time = time.time()
     clear_debug_files("debug/orange")
 
     clear_debug_files("debug/captures")
 
-    # move_game_window()
+    move_game_window()
     start_stop_listener()
 
+
+    # scroll_inventory(40)
     if REFINE_SCAN_MODE:
         print("===================================Enter starting row===================================")
         starting_row = int(input())
         print("===================================Enter finishing row===================================")
         finishing_row = int(input())
-        scan_inventory_refine_stones(starting_row-1, finishing_row-1)
+        scan_inventory_refine_stones(starting_row, finishing_row)
     elif TEST_OCR_MODE:
         test_ocr_from_file(TEST_OCR_IMAGE)
     elif CALIBRATION_MODE:

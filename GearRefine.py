@@ -41,7 +41,7 @@ import win32con
 TESSERACT_PATH = r"C:\Users\Daniel's laptop\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"
 
 REFINE_SCAN_MODE = False
-CALIBRATION_MODE = False
+CALIBRATION_MODE = True
 VISUALISATION_MODE = False
 
 TEST_OCR_MODE = False
@@ -98,6 +98,8 @@ REFINED_STAT_ROW_REGIONS = [
 
 REFINE_STONES_USED_REGION =  (-1720, 1010, -1430, 1030)
 REFINE_STONES_LEFT_REGION = (-1650, 850, -1480, 870)
+
+COINS_LEFT_REGION = (-1660, 830, -1480, 850)
 
 # TRIAL AND ERROR
 # Lock button X position (they're all at the same X, only Y changes per row)
@@ -256,8 +258,19 @@ DESIRED_STATS_NEEDED = 2
 # ─────────────────────────────────────────────
 
 # Stop refining this gear after using this many stones - includes phase 2
+#  LEGENDARY GEAR
 MAX_STONES_PER_NON_LUCK_GEAR = 3500 # 3000 ideally
 MAX_STONES_PER_LUCK_GEAR = 12500
+
+# 250 * 300 = looking for all skills up to 1000 stones
+#  + 500 * 300 = looking for 2 other skills up to 3000 stones 225000
+#  + 125 * 300 = orange buffer
+MAX_COINS_PER_NON_LUCK_GEAR =  262500
+# 300 * 3000 = 900000
+#  300 * 2250 = 675000
+MAX_COINS_PER_LUCK_GEAR = 600000
+
+COINS_FOR_SHOP = 1720000 # coins needed to buy daily items from shop - dont rly to go below this
 
 ORANGE_BUFFER = 500
 ALL_SKILLS_LIMIT = 1000 # stones used in search of all skills before reset
@@ -473,7 +486,7 @@ def click(pos, delay=None):
 
     BUTTON_DELAYS = {
         REFINE_BUTTON: 0.3,
-        SAVE_BUTTON: 0.8,
+        SAVE_BUTTON: 1,
         CANCEL_BUTTON: 0.3,
         CONFIRM_BUTTON: 0.3,
         BACK_BUTTON: 0.1,
@@ -519,7 +532,7 @@ def parse_gear_info(gear_text):
 
 def capture_region(region):
     # region is (left, top, right, bottom)
-    print("region:" + str(region))
+    # print("region:" + str(region))
     left, top, right, bottom = region
     # print("left,top,right,bottom:" + str(left)+","+ str(top)+","+ str(right)+","+ str(bottom))
     # Use ImageGrab with all_screens=True — handles negative coords on multi-monitor
@@ -589,7 +602,7 @@ def ocr_region(region, debug=False):
     # PSm 7 = single line, better for short stat text
     text = pytesseract.image_to_string(img, config="--psm 6 --oem 3")
     text = clean_ocr_text(text)
-    print(f"  [DEBUG] OCR raw text: '{text}'")
+    # print(f"  [DEBUG] OCR raw text: '{text}'")
     return text.lower()
 
 
@@ -690,8 +703,8 @@ def is_stat_orange(row_index, regions):
                 break
 
     is_orange = orange_count >= threshold
-    print(f"  Row {row_index+1} — orange pixels: {orange_count}/{total_pixels} "
-          f"(threshold {threshold}) — {'ORANGE ✓' if is_orange else 'not orange ✗'}")
+    # print(f"  Row {row_index+1} — orange pixels: {orange_count}/{total_pixels} "
+    #       f"(threshold {threshold}) — {'ORANGE ✓' if is_orange else 'not orange ✗'}")
 
     if is_orange:
         os.makedirs("debug/orange", exist_ok=True)
@@ -722,7 +735,7 @@ def lock_orange_rows(regions):
         click_lock_for_row(i)
     return orange
 
-# TODO IF NO REFINE BUT GOES TO PHASE 2 - CURRENT GEAR CAN BE RECYCLED AAS THIS WAS PREVIOUSLY REFINED AND LOCATION IS KNOWN - do not recycle if has a DESIRED_STAT as may be a backup gear
+# TODO IF NO REFINE BUT GOES TO PHASE 2 - CURRENT GEAR CAN BE RECYCLED AAS THIS WAS PREVIOUSLY REFINED AND LOCATION IS KNOWN
 def refine_for_orange(phase1_locked_rows,stones_used_phase1):
     print("\n=== PHASE 2: Refining for 3 orange stats ===")
     stones_used_phase2 = 0
@@ -734,8 +747,8 @@ def refine_for_orange(phase1_locked_rows,stones_used_phase1):
     while len(locked_rows) < 3 and stones_used_phase2 < ORANGE_BUFFER:
         emergency_stop_check()
 
-        print(f"\n[Phase 2 | Stone {stones_used_phase2 + get_refine_cost(len(locked_rows))}/{ORANGE_BUFFER}] "
-              f"Locked orange: {len(locked_rows)}/3 — Clicking Refine...")
+        # print(f"\n[Phase 2 | Stone {stones_used_phase2 + get_refine_cost(len(locked_rows))}/{ORANGE_BUFFER}] "
+        #       f"Locked orange: {len(locked_rows)}/3 — Clicking Refine...")
         click(REFINE_BUTTON)
         stones_used_phase2 += get_refine_cost(len(locked_rows))
 
@@ -755,7 +768,7 @@ def refine_for_orange(phase1_locked_rows,stones_used_phase1):
                 print(f"  Total locked: {len(locked_rows)}/3")
             else:
                 # No new orange — reroll by clicking refine then confirm
-                print("  No new orange stats — rerolling...")
+                # print("  No new orange stats — rerolling...")
                 click(REFINE_BUTTON,delay=0.01)
                 click(CONFIRM_BUTTON)
                 stones_used_phase2 += get_refine_cost(len(locked_rows))
@@ -764,6 +777,7 @@ def refine_for_orange(phase1_locked_rows,stones_used_phase1):
             new_orange = [i for i in get_orange_rows(REFINED_STAT_ROW_REGIONS) if i not in locked_rows]
             if new_orange:
                 print(f"  New orange stats in rows: {[i+1 for i in new_orange]}")
+                time.sleep(0.2)
                 click(SAVE_BUTTON)
                 for i in new_orange:
                     click_lock_for_row(i)
@@ -773,6 +787,7 @@ def refine_for_orange(phase1_locked_rows,stones_used_phase1):
     if len(locked_rows) >= 3:
         print(f"\n✅ Phase 2 complete — 3 orange stats locked! TOTAL REFINE STONES ON THIS GEAR = {stones_used_phase1+stones_used_phase2}")
     else:
+        click(SAVE_BUTTON)
         print(f"\n⚠ Ran out of stones in Phase 2 with {len(locked_rows)} orange stats locked. didn't find 3 orange or a problem occurred")
 
 
@@ -975,7 +990,7 @@ def emergency_stop_check():
         print("🛑 Stopped.")
         sys.exit(0)
 
-
+# ---------------------------------------------- INVENTORY RECYCLE ZONE -------------------------------------------------
 
 def scan_inventory_refine_stones(start_row=10, end_row=25):
     """
@@ -1010,11 +1025,10 @@ def scan_inventory_refine_stones(start_row=10, end_row=25):
             
 
             # Read gear name — skip if empty
-            gear_name = ocr_region(GEAR_INFO_REGION).strip()
+            gear_name = ocr_region(GEAR_NAME_REGION).strip()
             if not gear_name:
                 print(f"  Row {row} Col {col+1} — no gear found, skipping")
                 click(POPUP_DISMISS_BUTTON)
-
                 continue
 
             print(f"  Gear: '{gear_name}'")
@@ -1276,7 +1290,7 @@ def visualise_coordinates():
 
     draw_region(GEAR_NAME_REGION, "GEAR NAME NAME",  (100, 200, 100))
     draw_region(FFAWNSKIN_BELT_NAME_REGION, "FAWNSKIN BELT NAME",  (100, 200, 100))
-    # draw_region(REFINE_STONES_LEFT_REGION, "REFINE STONES",  (100, 200, 100))
+    draw_region(COINS_LEFT_REGION, "COINS",  (100, 200, 100))
     draw_region(REFINE_STONES_USED_REGION, "REFINE STONES",  (100, 200, 100))
     # draw_region(GEAR_NAME_REGION, "GEAR NAME",  (100, 200, 100))
     # ── Inventory navigation ──
@@ -1294,7 +1308,7 @@ def visualise_coordinates():
 # TODO deal with errors that will arise with incorrect lvl gear
 # TODO recycle - save the stats and name of gear and if all match recycle item - could have false positives but could be worth? 
 
-def run_automation(starting_row=INVENTORY_SCROLL_MAX_SINGLE):
+def run_automation(bought_from_shop,starting_row=INVENTORY_SCROLL_MAX_SINGLE):
     """
     Master loop — iterates through gear items, refines each one,
     recycles if needed, and moves to the next.
@@ -1321,17 +1335,18 @@ def run_automation(starting_row=INVENTORY_SCROLL_MAX_SINGLE):
         time.sleep(0.3)
 
         # Read gear name to determine correct refine button position
-        gear_type = ocr_region(GEAR_INFO_REGION, debug=True)
-        print(f"  Gear name: '{gear_type.strip()}'")
+        gear_info = ocr_region(GEAR_INFO_REGION, debug=True)
+        print(f"  Gear info: '{gear_info.strip()}'")
 
-        if not gear_type.strip():
+        if not gear_info.strip():
             print("  No gear found in slot — dismissing any popup and moving to next slot...")
             click(POPUP_DISMISS_BUTTON)
             current_slot += 1
             continue
+        # TODO check gear lvl from info
 
         # Get correct refine button for this gear type
-        refine_button = get_refine_button_for_gear(gear_type)
+        refine_button = get_refine_button_for_gear(gear_info)
         if refine_button is None:
             click(POPUP_DISMISS_BUTTON)
             current_slot += 1
@@ -1346,34 +1361,56 @@ def run_automation(starting_row=INVENTORY_SCROLL_MAX_SINGLE):
                 raise ValueError(f"No number found in: '{raw}'")
             print(f"  Refine stones left: {refine_stones_left}")
 
-
-
             if starting_gear == True:
                 starting_stones = refine_stones_left
                 starting_gear = False
-        except ValueError as e:
-            # print("Trying alternate refine button") CBA
+        except ValueError as e: # TODO should be on refine page and cant read but currently used for high lvl gear or others which cannot find refine button
             print(f"  ⚠ Could not read refine stones left ({e}) — skipping")
+            # click(BACK_BUTTON)
+            # click(PACK_BUTTON)
+            # scroll inv ??
             click(POPUP_DISMISS_BUTTON)
             current_slot += 1
             continue
 
         try:
             raw = ocr_region(REFINE_STONES_USED_REGION, debug=True)
-            refine_stones_used_before_refine = extract_first_number_after_colon(raw) or -1
+            refine_stones_used_before_refine = extract_first_number_after_colon(raw)
+            if refine_stones_used_before_refine is None:
+                refine_stones_used_before_refine = -1
             print(f"  Refine stones used on item: {refine_stones_used_before_refine}")
         except ValueError:
             print("  ⚠ Could not read refine stones used — defaulting to 0")
             refine_stones_used_before_refine = -1
 
-        if refine_stones_left > MAX_STONES_PER_NON_LUCK_GEAR:
+        try:
+            raw = ocr_region(COINS_LEFT_REGION, debug=True)
+            coins_left = extract_first_number_after_colon(raw)
+
+            if coins_left is None or raw[:4] != "coin": # check that raw text starts with coin if not something went wrong
+                raise ValueError(f"No number found in: '{raw}'")
+            
+            print(f"  Coins left: {coins_left}")
+        except ValueError as e:
+            print(f"  ⚠ Could not read coins left ({e}) - skipping")
+            click(BACK_BUTTON)
+            click(PACK_BUTTON)
+            current_slot += 1
+            continue
+
+
+        if bought_from_shop == True:
+            coin_budget = MAX_COINS_PER_LUCK_GEAR
+        else:
+            coin_budget = COINS_FOR_SHOP + MAX_COINS_PER_LUCK_GEAR
+        if refine_stones_left > MAX_STONES_PER_NON_LUCK_GEAR and coins_left > coin_budget:
             # Run the refine loop — returns whether phase 2 was needed
-            successful_refine = refine_loop(gear_type,refine_stones_left,refine_stones_used_before_refine)
+            successful_refine = refine_loop(gear_info,refine_stones_left,refine_stones_used_before_refine)
             items_processed += 1
-            processed_items.append((gear_type.strip(),refine_stones_used_before_refine,starting_row+(current_slot // GEAR_SLOT_COLS),current_slot % GEAR_SLOT_COLS,successful_refine))
+            processed_items.append((gear_info.strip(),refine_stones_used_before_refine,starting_row+(current_slot // GEAR_SLOT_COLS),current_slot % GEAR_SLOT_COLS,successful_refine))
             print(f"\n  ✓ Gear {items_processed} refined successfully — keeping")
         else:
-            print(f"\n  Not enough refine stones")
+            print(f"\n  Not enough refine stones or coins")
             break
         go_back_to_inventory()
         time.sleep(0.3)
@@ -1403,13 +1440,6 @@ def run_automation(starting_row=INVENTORY_SCROLL_MAX_SINGLE):
         #     current_slot += 1
 
 
-
-        # TODO not needed right now as not enough stones to need to see more than 28 items
-        # Scroll inventory every N items to reveal new gear
-        # if current_slot > 0 and current_slot % ITEMS_PER_SCROLL == 0:
-        #     print("  Scrolling inventory to reveal more items...")
-        #     scroll_inventory()
-
         time.sleep(0.3)
 
     print(f"\n✅ Automation complete — processed {items_processed} gear items")
@@ -1426,10 +1456,12 @@ def run_automation(starting_row=INVENTORY_SCROLL_MAX_SINGLE):
     print(f"  {'─' * len(header)}")
 
     sorted_items = sorted(processed_items, key=lambda x: x[1], reverse=True)
+    i = 0
     for name, stones, row, col, success in sorted_items:
-        gear_type, polished = parse_gear_info(name)
+        i+=1
+        gear_info, polished = parse_gear_info(name)
         success_str = "✓" if success else "✗"
-        print(f"  {gear_type:<{type_w}} {polished:<{polished_w}} "
+        print(f"{i}.  {gear_info:<{type_w}} {polished:<{polished_w}} "
               f"{stones:<{stones_w}} {row:<{row_w}} {col:<{col_w}} {success_str}")
 
     print(f"  {'─' * len(header)}")
@@ -1464,7 +1496,7 @@ def extract_first_number_after_colon(text):
     return None
 
 # TODO check coins as well even though rarely run out
-def refine_loop(gear_type,refine_stones_left_before_refine,stones_used = 0): 
+def refine_loop(gear_info,refine_stones_left_before_refine,stones_used = 0): 
     """
     True if refining was successful, False if item needs recycling
     """
@@ -1478,8 +1510,9 @@ def refine_loop(gear_type,refine_stones_left_before_refine,stones_used = 0):
 
     looking_for_max_win = False
 
-    # if "necklace" in gear_type or "weapon" in gear_type:
-    if "necklace" in gear_type or "weapon" in gear_type:
+    coins_used = 0
+
+    if "necklace" in gear_info or "weapon" in gear_info:
         looking_for_luck = True
         stones_left = refine_stones_left_before_refine
     luck = 0
@@ -1539,13 +1572,11 @@ def refine_loop(gear_type,refine_stones_left_before_refine,stones_used = 0):
             if locked_desired_count >= DESIRED_STATS_NEEDED:
                 print(f"  → Pre-check: already has all desired stats — phase 1 complete!")
                 return True
-            if locked_desired_count > 0:
-                print(f"  → Pre-check: already has all skills and one skill, backup gear - skipping")
-                return True
         
     
 
     stone_budget = MAX_STONES_PER_LUCK_GEAR if looking_for_luck else MAX_STONES_PER_NON_LUCK_GEAR
+    # coin_budget = MAX_COINS_PER_LUCK_GEAR if looking_for_luck else MAX_COINS_PER_NON_LUCK_GEAR
 
     # ── Main refine loop ──
     while (stones_used < stone_budget - ORANGE_BUFFER) and (not looking_for_luck or stones_left > 50):  
@@ -1707,9 +1738,12 @@ if __name__ == "__main__":
     elif VISUALISATION_MODE:
         visualise_coordinates()
     else:
+        print("===================================Bought From Shop Today? (y/n)===================================")
+        bought_from_shop_input = input()
+        bought_from_shop = True if bought_from_shop_input=="y" else False
         print("===================================Enter starting row===================================")
         starting_row = int(input())
-        run_automation(starting_row) # starting row index starts at 0 - determines what gear to start with as inv is in gear order
+        run_automation(bought_from_shop,starting_row) # starting row index starts at 0 - determines what gear to start with as inv is in gear order
 
 
     elapsed = time.time() - start_time
